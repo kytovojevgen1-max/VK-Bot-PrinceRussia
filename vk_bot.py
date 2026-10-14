@@ -5,8 +5,6 @@ import random
 import json
 import os
 import time
-from flask import Flask
-from threading import Thread
 from datetime import datetime
 
 TOKEN = "vk1.a.DBef1krkkTAEv6ephod0b8DA0z4zAUsisx0zPSph5i_gBWdt4B4OQnaBh1nuodWgxqfi5o3wLkkmVdvdqnsL-FIf4logWXo5fyeSjrmnAK5eMJNewdSuCBvFhMsP-TR5fdgozZmi1uNIT3lwRCAPJA5UJ_S1brxlxxSqUliNaj5g12aqE-CtFuH8oOaxAa6dSA3SflDe2nBXB9pksBUnig"
@@ -17,22 +15,6 @@ vk = vk_session.get_api()
 longpoll = VkLongPoll(vk_session)
 
 DB_FILE = "vk_database.json"
-
-# --- МИНИ-СЕРВЕР ДЛЯ RENDER (24/7) ---
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Prince Russia VK God Mode Engine is Online & Running!"
-
-def run_web():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run_web)
-    t.daemon = True
-    t.start()
-# -------------------------------------
 
 CAN_MANAGE_PREFIXES = ["💻 Разработчик", "👑 Владелец Проекта", "🔱 Зам. Владельца"]
 
@@ -96,8 +78,6 @@ def save_data():
 
 db = load_data()
 user_states = {}
-test_applications = {}
-pending_test_actions = {}
 
 def get_user_name(user_id):
     try:
@@ -182,8 +162,8 @@ def send_msg(user_id, message, keyboard=None):
     except Exception as e:
         print(f"Ошибка отправки сообщения: {e}")
 
-# --- ОСНОВНОЙ ЦИКЛ ОБРАБОТКИ СООБЩЕНИЙ VK ---
-def start_bot():
+# --- ОСНОВНОЙ ЦИКЛ ---
+if __name__ == '__main__':
     print("✅ VK Бот успешно запущен и ожидает сообщения!")
     while True:
         try:
@@ -200,7 +180,6 @@ def start_bot():
                     state = user_states.get(user_id)
                     user_bal = db["user_scores"].get(str(user_id), 0)
 
-                    # Обработка кнопок и текстовых команд
                     if text.lower() in ["/start", "начать", "меню", "🔙 главное меню", '{"cmd": "menu"}']:
                         user_states[user_id] = None
                         name = get_user_name(user_id)
@@ -214,7 +193,6 @@ def start_bot():
                         send_msg(user_id, welcome_text, get_main_keyboard(user_id))
                         continue
 
-                    # Профиль
                     elif text == "👤 Профиль" or text == '{"cmd": "profile"}':
                         role = db["admin_prefixes"].get(str(user_id), "👑 Элитный Игрок")
                         msg = (
@@ -227,7 +205,6 @@ def start_bot():
                         )
                         send_msg(user_id, msg, get_main_keyboard(user_id))
 
-                    # Ежедневный бонус
                     elif text == "🎁 Бонус" or text == '{"cmd": "daily"}':
                         today = datetime.now().strftime("%Y-%m-%d")
                         last_claim = db["daily_bonus"].get(str(user_id))
@@ -240,7 +217,6 @@ def start_bot():
                         save_data()
                         send_msg(user_id, f"🎁 Бонус забран! Получено: +{bonus} Prince Coins 🔥", get_main_keyboard(user_id))
 
-                    # Кейс
                     elif text == "📦 Кейс 🎁" or text == '{"cmd": "case"}':
                         if user_bal < 250:
                             send_msg(user_id, "❌ Недостаточно коинов! Нужно минимум 250 Coins.", get_main_keyboard(user_id))
@@ -251,7 +227,6 @@ def start_bot():
                         save_data()
                         send_msg(user_id, f"📦 Кейс открыт! Твой выигрыш: +{win} Prince Coins! 🚀", get_main_keyboard(user_id))
 
-                    # ТОП
                     elif text == "🏆 ТОП Богачей" or text == '{"cmd": "top"}':
                         sorted_users = sorted(db["user_scores"].items(), key=lambda x: x[1], reverse=True)[:10]
                         top_text = "🏆 ТОП-10 ОЛИГАРХОВ ПРОЕКТА\n───────────────────────────────\n"
@@ -260,7 +235,6 @@ def start_bot():
                             top_text += f"{idx}. {name} — {score} Coins\n"
                         send_msg(user_id, top_text, get_main_keyboard(user_id))
 
-                    # Промокод (Шаг 1)
                     elif text == "🎟 Промокод" or text == '{"cmd": "promo"}':
                         user_states[user_id] = 'enter_promo'
                         send_msg(user_id, "🎟 Введи секретный промокод в чат:")
@@ -282,7 +256,6 @@ def start_bot():
                         else:
                             send_msg(user_id, "❌ Неверный промокод.", get_main_keyboard(user_id))
 
-                    # Казино кости
                     elif text == "🎰 Казино 👑" or text == '{"cmd": "casino"}':
                         send_msg(user_id, "🎰 Введи ставку в Coins для игры в кости:")
                         user_states[user_id] = 'casino_bet'
@@ -306,7 +279,6 @@ def start_bot():
                                 save_data()
                                 send_msg(user_id, f"🎲 Твои очки: {dice_user} | Бот: {dice_bot}\n😢 Ты проиграл {bet} Coins.", get_main_keyboard(user_id))
 
-                    # Админ-панель
                     elif text == "⚡️ ПАНЕЛЬ ОЛИГАРХА" or text == '{"cmd": "admin_panel"}':
                         if user_id in db["admins"]:
                             send_msg(user_id, "⚡️ Панель Высшего Руководства:", get_admin_keyboard())
@@ -337,13 +309,3 @@ def start_bot():
         except Exception as e:
             print(f"⚠️ Ошибка LongPoll: {e}")
             time.sleep(3)
-
-if __name__ == '__main__':
-    print("🚀 Запуск фонового потока VK-бота...")
-    bot_thread = Thread(target=start_bot)
-    bot_thread.daemon = True
-    bot_thread.start()
-    
-    print("🚀 Запуск веб-сервера Flask для Render...")
-    keep_alive()
-    app.run(host='0.0.0.0', port=8080)
