@@ -25,7 +25,7 @@ Thread(target=run_flask, daemon=True).start()
 TOKEN = "vk1.a.msFlcd5y5n3ouSMUzsU5UYT2iSsz4oZpfqugFyFvBoDPuIJCuaTveRYFLZUWk7hLbnlLkLRivG5oRTMXhZU0SzOc1emMasJWDUD6NmWyEYjhc9uCa8dqbbTKb_EGadWM10CBTRPdvW-aeYAHS_sPp83X79GHyiDThjRh1qxRA_PdmEnk2mQGTYzf_gn8gby_7dwqLtrurXbwi2qw7w1kJw"
 bot = Bot(token=TOKEN)
 
-ADMIN_IDS = {897082738}  # Твой VK ID
+ADMIN_IDS = {897082738}  # Ваш VK ID
 
 USERS_FILE = "users.json"
 CHATS_FILE = "chats.json"
@@ -54,7 +54,6 @@ bonus_db = load_data(BONUS_FILE, is_dict=True)
 
 user_states = {}
 
-# Список запрещенных слов (Защита бесед)
 BAD_WORDS = ["дискорд", "discord.gg", "http://", "https://", "t.me/", "vk.me/join"]
 PROMOCODES = {
     "PRINCE2026": "🎉 Вы получили 50,000 Prince Coins на сервер!",
@@ -159,14 +158,13 @@ async def give_admin_start(message: Message):
     await message.answer("✍️ Перешлите сообщение или укажите **VK ID** нового админа:", keyboard=get_cancel_keyboard())
 
 
-# --- ОБРАБОТКА ВВОДА ЛС И КНОПОК ИГРОКОВ ---
+# --- ОБРАБОТКА ВВОДА И РАССЫЛОК ---
 
 @bot.on.private_message()
 async def private_input_handler(message: Message):
     uid = message.from_id
     text = message.text
     
-    # Режим ожидания ввода
     if uid in user_states:
         state = user_states[uid]
         
@@ -174,18 +172,33 @@ async def private_input_handler(message: Message):
             del user_states[uid]
             return await message.answer("❌ Отменено.", keyboard=get_main_keyboard(uid in ADMIN_IDS))
             
+        # 1. Рассылка в ЛС
         if state == "awaiting_pm_broadcast" and uid in ADMIN_IDS:
             del user_states[uid]
-            await message.answer("🚀 Запускаю рассылку в ЛС...")
-            count = sum(1 for u in list(user_ids) if _send_safe(u, text))
-            return await message.answer(f"✅ Доставлено `{count}` пользователям!", keyboard=get_admin_keyboard())
+            await message.answer("🚀 Запускаю рассылку пользователям в ЛС...")
+            count = 0
+            for u_id in list(user_ids):
+                try:
+                    await bot.api.messages.send(user_id=u_id, message=text, random_id=0)
+                    count += 1
+                except Exception:
+                    pass
+            return await message.answer(f"✅ Рассылка в ЛС завершена!\nУспешно доставлено: `{count}` пользователям.", keyboard=get_admin_keyboard())
 
+        # 2. Рассылка по Беседам (Исправленный блок)
         elif state == "awaiting_chats_broadcast" and uid in ADMIN_IDS:
             del user_states[uid]
             await message.answer("🚀 Запускаю рассылку по беседам...")
-            count = sum(1 for c in list(chat_ids) if _send_safe(c, text))
-            return await message.answer(f"✅ Отправлено в `{count}` бесед(ы)!", keyboard=get_admin_keyboard())
+            count = 0
+            for peer_id in list(chat_ids):
+                try:
+                    await bot.api.messages.send(peer_id=peer_id, message=text, random_id=0)
+                    count += 1
+                except Exception:
+                    pass
+            return await message.answer(f"✅ Информационная рассылка отправлена в `{count}` бесед(ы)!", keyboard=get_admin_keyboard())
 
+        # 3. Выдача админки
         elif state == "awaiting_give_admin" and uid in ADMIN_IDS:
             del user_states[uid]
             target_id = message.reply_message.from_id if message.reply_message else (int(text) if text.isdigit() else None)
@@ -194,13 +207,17 @@ async def private_input_handler(message: Message):
                 return await message.answer(f"🎉 Пользователь [id{target_id}|VK ID {target_id}] назначен админом бота!", keyboard=get_admin_keyboard())
             return await message.answer("❌ Ошибка ввода ID.", keyboard=get_admin_keyboard())
 
+        # 4. Прием анкет
         elif state in ["awaiting_admin_app", "awaiting_media_app"]:
             app_type = "🛡 АДМИНКУ" if state == "awaiting_admin_app" else "🎬 МЕДИА"
             del user_states[uid]
             
             report = f"📥 **НОВАЯ ЗАЯВКА НА {app_type}!**\n\n👤 Игрок: [id{uid}|Ссылка]\n📝 АНКЕТА:\n{text}"
             for admin_id in ADMIN_IDS:
-                _send_safe(admin_id, report)
+                try:
+                    await bot.api.messages.send(user_id=admin_id, message=report, random_id=0)
+                except Exception:
+                    pass
             return await message.answer("✅ Ваша заявка успешно отправлена руководству! Ожидайте ответа.", keyboard=get_main_keyboard(uid in ADMIN_IDS))
 
         elif state == "awaiting_promo":
@@ -226,7 +243,7 @@ async def private_input_handler(message: Message):
         last_time = bonus_db.get(str_uid, 0)
         now = time.time()
         
-        if now - last_time < 86400: # 24 часа
+        if now - last_time < 86400:
             hours = int((86400 - (now - last_time)) // 3600)
             return await message.answer(f"⏳ Вы уже забирали бонус! Следующая награда будет доступна через `{hours}` ч.")
             
@@ -257,18 +274,12 @@ async def private_input_handler(message: Message):
     elif text == "🆘 Поддержка":
         await message.answer("🆘 Напишите вашу проблему, администрация ответит вам в ближайшее время!")
 
-async def _send_safe(peer_id, text):
-    try:
-        await bot.api.messages.send(peer_id=peer_id, message=text, random_id=0)
-        return True
-    except Exception:
-        return False
 
-
-# --- 5. ОБРАБОТКА БЕСЕДИ & АНТИ-СПАМ ---
+# --- 5. ОБРАБОТКА БЕСЕД И АВТО-ЗАПИСЬ ИХ В БАЗУ ---
 
 @bot.on.chat_message()
 async def chat_handler(message: Message):
+    # Автоматически запоминаем беседу при ЛЮБОМ сообщении в ней
     if message.peer_id not in chat_ids:
         chat_ids.add(message.peer_id)
         save_data(CHATS_FILE, chat_ids)
