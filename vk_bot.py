@@ -14,7 +14,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Prince Russia Ultimate Core v5.1: ACTIVE 24/7"
+    return "Prince Russia Ultimate Core v5.2: ACTIVE 24/7"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -96,15 +96,33 @@ def get_user_data(uid):
     return db["users"][uid_str]
 
 async def resolve_user(identifier: str):
+    """Идеальный поиск пользователя: по ID, через VK API по screen_name (@username) или по базе"""
     clean_id = identifier.strip().replace("https://vk.com/", "").replace("vk.com/", "").replace("@", "").replace("id", "")
+    
+    # Если это чистый ID
     if clean_id.isdigit():
         uid = int(clean_id)
-        if str(uid) in db["users"]:
-            return uid
+        get_user_data(uid)  # Автоматически создаем в базе если нет
+        return uid
+        
+    # Если передан юзернейм (например evgenn09)
     search_str = identifier.strip().lower().replace("@", "")
+    
+    # 1. Ищем сначала в локальной базе
     for u_str, u_info in db["users"].items():
         if u_info.get("username", "").lower().replace("@", "") == search_str:
             return int(u_str)
+            
+    # 2. Если нет в базе, запрашиваем через официальное VK API
+    try:
+        user_info = await bot.api.users.get(user_ids=[search_str])
+        if user_info:
+            uid = user_info[0].id
+            get_user_data(uid)  # Создаем в базе
+            return uid
+    except Exception:
+        pass
+        
     return None
 
 
@@ -241,7 +259,7 @@ async def case_handler(message: Message):
 async def dice_handler(message: Message):
     uid = message.from_id
     u_data = get_user_data(uid)
-    cost = 1000000  # 1 млн руб за бросок
+    cost = 1000000
     if u_data["money"] < cost:
         return await message.answer(f"❌ Для игры в кости нужно минимум **{cost:,} руб.** на руках!")
     
