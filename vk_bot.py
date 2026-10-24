@@ -59,9 +59,7 @@ db = load_data(DATA_DB_FILE, default_type=dict)
 
 if "users" not in db: db["users"] = {}
 if "chats" not in db: db["chats"] = {}
-# Локальные данные по чатам: чат -> юзер -> {nick, role, warns, muted}
 if "chat_members" not in db: db["chat_members"] = {}
-# Локальные роли по чатам: чат -> {название_роли: приоритет}
 if "chat_roles" not in db: db["chat_roles"] = {}
 
 if "globals" not in db: 
@@ -92,7 +90,6 @@ def get_user_global(uid):
         db["users"][uid_str] = {
             "coins": 15000,
             "level": is_owner,
-            "global_nick": None,
             "messages_count": 0,
             "reg_date": time.strftime("%Y-%m-%d %H:%M:%S")
         }
@@ -252,19 +249,18 @@ async def chat_handler(message: Message):
     peer = message.peer_id
     uid = message.from_id
 
-    # Приветствие при добавлении бота в чат
+    # Приветствие при добавлении бота в чат (без ошибок атрибутов)
     if message.action and message.action.type == "chat_invite_user":
-        if message.action.member_id == -bot.api.token_settings:
-            welcome_msg = (
-                "👑 **ПРИВЕТСТВУЮ ВАС НА ПРОЕКТЕ PRINCE RUSSIA!** 👑\n"
-                "───────────────────────────────\n"
-                "🤖 Официальный Чат-Менеджер успешно подключен!\n\n"
-                "⚙️ **ИНСТРУКЦИЯ:**\n"
-                "1. Выдайте боту **права Администратора (звездочку)**.\n"
-                "2. Если хотите добавить этот чат в глобальный пул, введите `/pull`.\n"
-                "3. Напишите `/стата`, чтобы активировать права Владельца!"
-            )
-            return await message.answer(welcome_msg)
+        welcome_msg = (
+            "👑 **ПРИВЕТСТВУЮ ВАС НА ПРОЕКТЕ PRINCE RUSSIA!** 👑\n"
+            "───────────────────────────────\n"
+            "🤖 Официальный Чат-Менеджер успешно подключен!\n\n"
+            "⚙️ **ИНСТРУКЦИЯ:**\n"
+            "1. Выдайте боту **права Администратора (звездочку)**.\n"
+            "2. Введите команду `/pull`, чтобы привязать чат к общему пулу проекта.\n"
+            "3. Напишите `/стата`, чтобы активировать права Владельца!"
+        )
+        return await message.answer(welcome_msg)
 
     text = message.text
     args = text.split()
@@ -296,7 +292,7 @@ async def chat_handler(message: Message):
 
 
     # =================================================================
-    # ⭐️ ЛОКАЛЬНЫЕ КОМАНДЫ ЧАТА (РАБОТАЮТ ТОЛЬКО ЗДЕСЬ)
+    # ⭐️ ЛОКАЛЬНЫЕ КОМАНДЫ ЧАТА
     # =================================================================
 
     if cmd in ["test", "пинг", "ping", "/ping"]:
@@ -346,7 +342,7 @@ async def chat_handler(message: Message):
         is_p = "Да" if peer in chat_ids else "Нет"
         await message.answer(f"💬 **ИНФОРМАЦИЯ О ЧАТЕ:**\n🆔 Peer ID: `{peer}`\n🌐 Подключен к пулу: **{is_p}**")
 
-    # --- ЛОКАЛЬНАЯ МОДЕРАЦИЯ И НИКИ (ТОЛЬКО ДЛЯ ЭТОГО ЧАТА) ---
+    # --- ЛОКАЛЬНАЯ МОДЕРАЦИЯ И НИКИ ---
 
     elif cmd in ["кик", "kick", "/kick"]:
         if user_level < 1: return await message.answer("❌ Требуется ранг: Следящий [1+] (Напиши /стата)")
@@ -399,8 +395,6 @@ async def chat_handler(message: Message):
                 if u_info.get("nick"):
                     nlist.append(f"• [id{u_id_str}|ID {u_id_str}] ➔ **{u_info['nick']}**")
         await message.answer("📋 **СПИСОК НИКОВ В ЭТОМ ЧАТЕ:**\n───────────────────────────────\n" + ("\n".join(nlist) if nlist else "Пусто"))
-
-    # --- СОЗДАНИЕ И ВЫДАЧА РОЛЕЙ В ЭТОМ ЧАТЕ ---
 
     elif cmd in ["новаяроль"]:
         if user_level < 2: return await message.answer("❌ Нужен ранг Модератор [2+]")
@@ -473,7 +467,6 @@ async def chat_handler(message: Message):
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
         new_nick = " ".join(args[2:]) if len(args) > 2 else (" ".join(args[1:]) if message.reply_message else "")
         if target and new_nick:
-            # Меняем ник во всех чатах пула для этого пользователя!
             for p_id in chat_ids:
                 get_chat_member(p_id, target)["nick"] = new_nick
             save_data(DATA_DB_FILE, db)
