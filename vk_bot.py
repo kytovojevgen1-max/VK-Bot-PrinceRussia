@@ -141,7 +141,7 @@ def get_main_keyboard(is_admin: bool):
 def get_admin_keyboard():
     keyboard = Keyboard(one_time=False, inline=False)
     keyboard.add(Text("📢 Рассылка в ЛС"), color=KeyboardButtonColor.POSITIVE)
-    keyboard.add(Text("💬 Рассылка по Беседам"), color=KeyboardButtonColor.PRIMARY)
+    keyboard.add(Text("💬 Рассылка по Пулу Бесед"), color=KeyboardButtonColor.PRIMARY)
     keyboard.row()
     keyboard.add(Text("🔙 Главное меню"), color=KeyboardButtonColor.NEGATIVE)
     return keyboard.get_json()
@@ -183,11 +183,11 @@ async def broadcast_pm(message: Message):
     user_states[message.from_id] = "pm"
     await message.answer(f"✍️ Введите текст для рассылки **в ЛС пользователям** (База: {len(user_ids)} чел.):")
 
-@bot.on.private_message(text="💬 Рассылка по Беседам")
+@bot.on.private_message(text="💬 Рассылка по Пулу Бесед")
 async def broadcast_chats(message: Message):
     if get_user_data(message.from_id)["level"] < 4: return
     user_states[message.from_id] = "chats"
-    await message.answer(f"✍️ Введите текст для рассылки **по всем беседам пула** (Всего чатов: {len(chat_ids)}):")
+    await message.answer(f"✍️ Введите текст для рассылки **по привязанным чатам пула** (Всего чатов в пуле: {len(chat_ids)}):")
 
 @bot.on.private_message()
 async def private_input(message: Message):
@@ -229,15 +229,11 @@ async def private_input(message: Message):
 
 
 # =====================================================================
-# 5. ЯДРО ОБРАБОТКИ СООБЩЕНИЙ И КОМАНД В БЕСЕДАХ (ЧАТ-МЕНЕДЖЕР + ПУЛ)
+# 5. ЯДРО ОБРАБОТКИ СООБЩЕНИЙ И КОМАНД В БЕСЕДАХ
 # =====================================================================
 
 @bot.on.chat_message()
 async def chat_handler(message: Message):
-    if message.peer_id not in chat_ids:
-        chat_ids.add(message.peer_id)
-        save_data(CHATS_FILE, chat_ids)
-
     # Приветствие при добавлении бота в чат
     if message.action and message.action.type == "chat_invite_user":
         if message.action.member_id == -bot.api.token_settings:
@@ -245,9 +241,9 @@ async def chat_handler(message: Message):
                 "👑 **ПРИВЕТСТВУЮ ВАС НА ПРОЕКТЕ PRINCE RUSSIA!** 👑\n"
                 "───────────────────────────────\n"
                 "🤖 Официальный Чат-Менеджер успешно подключен!\n\n"
-                "⚙️ **ВАЖНО:**\n"
-                "1. Выдайте боту **права Администратора (звездочку)** в беседе.\n"
-                "2. Введите команду `/pull`, чтобы привязать чат к общему пулу проекта.\n"
+                "⚙️ **ИНСТРУКЦИЯ:**\n"
+                "1. Выдайте боту **права Администратора (звездочку)**.\n"
+                "2. Если хотите добавить этот чат в глобальный пул, введите `/pull`.\n"
                 "3. Напишите `/стата`, чтобы активировать права Владельца!"
             )
             return await message.answer(welcome_msg)
@@ -282,11 +278,12 @@ async def chat_handler(message: Message):
 
 
     # =================================================================
-    # ⭐️ КОМАНДЫ ЧАТ-МЕНЕДЖЕРА
+    # ⭐️ ЛОКАЛЬНЫЕ КОМАНДЫ ЧАТА (РАБОТАЮТ ТОЛЬКО ЗДЕСЬ)
     # =================================================================
 
     if cmd in ["test", "пинг", "ping", "/ping"]:
-        await message.answer("🏓 **Понг!** Чат-менеджер Prince Russia работает отлично в пуле бесед!")
+        is_pulled = "Да (В пуле)" if message.peer_id in chat_ids else "Нет (Обычный чат)"
+        await message.answer(f"🏓 **Понг!** Чат-менеджер активен.\n📌 Статус чата: **{is_pulled}**")
 
     elif cmd in ["правила", "rules", "/rules"]:
         await message.answer(f"📜 **ПРАВИЛА БЕСЕДЫ:**\n{db['globals']['rules']}")
@@ -301,10 +298,10 @@ async def chat_handler(message: Message):
         t_data = get_user_data(target_id)
         role_title = t_data["custom_role"] or RANKS.get(t_data["level"], "Пользователь")
         msg = (
-            f"👤 **ПРОФИЛЬ УЧАСТНИКА (ПУЛ):**\n"
+            f"👤 **ПРОФИЛЬ УЧАСТНИКА:**\n"
             "───────────────────────────────\n"
             f"🆔 VK ID: `{target_id}`\n"
-            f"🏷 Глобальный ник: **{t_data['nick'] or 'Не установлен'}**\n"
+            f"🏷 Ник в чате: **{t_data['nick'] or 'Не установлен'}**\n"
             f"👑 Ранг: **{role_title} [{t_data['level']}]**\n"
             f"💰 Баланс: **{t_data['coins']:,} Coins**\n"
             f"✉️ Сообщений: `{t_data['messages_count']}`\n"
@@ -322,32 +319,24 @@ async def chat_handler(message: Message):
 
     elif cmd in ["staff", "админы"]:
         staff = [f"• [id{k}|Администратор] — {RANKS.get(v['level'], 'Админ')}" for k, v in db["users"].items() if v.get("level", 0) > 0]
-        await message.answer("👑 **АДМИНИСТРАЦИЯ ПРОЕКТА:**\n───────────────────────────────\n" + ("\n".join(staff) if staff else "Пусто"))
+        await message.answer("👑 **АДМИНИСТРАЦИЯ:**\n───────────────────────────────\n" + ("\n".join(staff) if staff else "Пусто"))
 
     elif cmd in ["online", "онлайн"]:
-        await message.answer("🟢 **ПОЛЬЗОВАТЕЛИ В СЕТИ:**\nВсе участники успешно синхронизированы в системе пула!")
+        await message.answer("🟢 **ПОЛЬЗОВАТЕЛИ В СЕТИ:**\nВсе участники на связи!")
 
     elif cmd in ["чатинфо", "chat"]:
-        await message.answer(f"💬 **ИНФОРМАЦИЯ О ЧАТЕ:**\n🆔 Peer ID: `{message.peer_id}`\n👥 Привязано бесед в пуле: `{len(chat_ids)}`")
+        is_p = "Да" if message.peer_id in chat_ids else "Нет"
+        await message.answer(f"💬 **ИНФОРМАЦИЯ О ЧАТЕ:**\n🆔 Peer ID: `{message.peer_id}`\n🌐 Подключен к пулу: **{is_p}**")
 
-    elif cmd in ["mutelist", "mlist"]:
-        muted = [f"• [id{k}|Участник]" for k, v in db["users"].items() if v.get("muted_until", 0) > time.time()]
-        await message.answer("🔇 **СПИСОК С МУТОМ:**\n" + ("\n".join(muted) if muted else "Заблокированных нет."))
-
-    elif cmd in ["warnlist"]:
-        warned = [f"• [id{k}|Участник] — {v['warns']}/3 варнов" for k, v in db["users"].items() if v.get("warns", 0) > 0]
-        await message.answer("⚠️ **СПИСОК С ВАРНАМИ:**\n" + ("\n".join(warned) if warned else "Предупреждений ни у кого нет."))
-
-
-    # --- МОДЕРАЦИЯ И УПРАВЛЕНИЕ НИКАМИ / РОЛЯМИ ---
+    # --- ЛОКАЛЬНАЯ МОДЕРАЦИЯ И НИКИ ---
 
     elif cmd in ["кик", "kick", "/kick"]:
-        if user_level < 1: return await message.answer("❌ Требуется ранг: Следящий [1+] (Напиши /стата для активации прав)")
+        if user_level < 1: return await message.answer("❌ Требуется ранг: Следящий [1+] (Напиши /стата)")
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
         if target:
             try:
                 await bot.api.messages.remove_chat_user(chat_id=message.chat_id, member_id=target)
-                await message.answer(f"🚪 Участник [id{target}|VK] исключен.")
+                await message.answer(f"🚪 Участник [id{target}|VK] исключен из этого чата.")
             except Exception: await message.answer("❌ Выдайте боту права администратора!")
 
     elif cmd in ["варн", "warn", "/warn"]:
@@ -357,7 +346,7 @@ async def chat_handler(message: Message):
             t = get_user_data(target)
             t["warns"] += 1
             save_data(DATA_DB_FILE, db)
-            await message.answer(f"⚠️ Участнику [id{target}|VK] выдан варн ({t['warns']}/3).")
+            await message.answer(f"⚠️ Участнику [id{target}|VK] выдан варн в этом чате ({t['warns']}/3).")
 
     elif cmd in ["мут", "mute", "/mute"]:
         if user_level < 2: return await message.answer("❌ Требуется ранг: Модератор [2+]")
@@ -365,7 +354,7 @@ async def chat_handler(message: Message):
         if target:
             get_user_data(target)["muted_until"] = time.time() + 900
             save_data(DATA_DB_FILE, db)
-            await message.answer(f"🔇 Участнику [id{target}|VK] выдан мут на 15 минут.")
+            await message.answer(f"🔇 Участнику [id{target}|VK] выдан мут в этом чате на 15 минут.")
 
     elif cmd in ["setnick", "snick", "/snick", "ник", "!ник"]:
         if user_level < 1: return
@@ -374,7 +363,7 @@ async def chat_handler(message: Message):
         if target and new_nick:
             get_user_data(target)["nick"] = new_nick
             save_data(DATA_DB_FILE, db)
-            await message.answer(f"✅ Ник изменен на: **{new_nick}** (синхронизирован в пуле)")
+            await message.answer(f"✅ Установлен ник **{new_nick}** для [id{target}|участника] (в этом чате).")
 
     elif cmd in ["removenick", "rnick", "/rnick", "рник"]:
         if user_level < 1: return
@@ -382,11 +371,11 @@ async def chat_handler(message: Message):
         if target:
             get_user_data(target)["nick"] = None
             save_data(DATA_DB_FILE, db)
-            await message.answer("❌ Никнейм успешно сброшен.")
+            await message.answer("❌ Никнейм сброшен в этом чате.")
 
     elif cmd in ["nicklist", "nlist", "/nlist"]:
         nlist = [f"• [id{k}|ID {k}] ➔ **{v['nick']}**" for k, v in db["users"].items() if v.get("nick")]
-        await message.answer("📋 **ЕДИНИЙ СПИСОК НИКОВ (ПУЛ):**\n───────────────────────────────\n" + ("\n".join(nlist) if nlist else "Пусто"))
+        await message.answer("📋 **СПИСОК НИКОВ В ЭТОМ ЧАТЕ:**\n───────────────────────────────\n" + ("\n".join(nlist) if nlist else "Пусто"))
 
     elif cmd in ["новаяроль"]:
         if user_level < 2: return
@@ -395,7 +384,7 @@ async def chat_handler(message: Message):
             r_name = " ".join(args[2:])
             db["roles"][r_name] = {"priority": prio, "name": r_name}
             save_data(DATA_DB_FILE, db)
-            await message.answer(f"🎉 Создана новая роль **{r_name}** с приоритетом {prio}!")
+            await message.answer(f"🎉 Создана роль **{r_name}**!")
 
     elif cmd in ["удалитьроль"]:
         if user_level < 2: return
@@ -412,45 +401,54 @@ async def chat_handler(message: Message):
         if target:
             get_user_data(target)["custom_role"] = r_name
             save_data(DATA_DB_FILE, db)
-            await message.answer(f"✅ Пользователю [id{target}|VK] назначена роль: **{r_name}**!")
+            await message.answer(f"✅ Назначена роль **{r_name}** для [id{target}|VK]!")
 
     elif cmd in ["вызов", "zov", "zov", "/zov", "!зов"]:
         if user_level < 1: return
-        await message.answer("🔔 @all @online **ОБЩИЙ СБОР ВСЕХ УЧАСТНИКОВ!** Внимание!")
+        await message.answer("🔔 @all @online **ОБЩИЙ СБОР В ЭТОМ ЧАТЕ!** Внимание!")
 
 
     # =================================================================
-    # ⭐️ ГЛОБАЛЬНЫЕ КОМАНДЫ ПУЛА (С ПРЕФИКСАМИ G...)
+    # ⭐️ УПРАВЛЕНИЕ ПУЛОМ БЕСЕД (/pull, /rpull)
     # =================================================================
 
     elif cmd in ["pull", "/pull"]:
         if message.peer_id not in chat_ids:
             chat_ids.add(message.peer_id)
             save_data(CHATS_FILE, chat_ids)
-        await message.answer(f"✅ Чат привязан к пулу! Всего бесед в пуле: `{len(chat_ids)}`")
+        await message.answer(f"🌐 **Чат успешно подключен к глобальному пулу!**\nТеперь сюда будут прилетать глобальные команды (с префиксом G). Всего чатов в пуле: `{len(chat_ids)}`")
 
     elif cmd in ["rpull", "/rpull"]:
         if message.peer_id in chat_ids:
             chat_ids.remove(message.peer_id)
             save_data(CHATS_FILE, chat_ids)
-        await message.answer("❌ Чат отвязан от пула конференций.")
+        await message.answer("❌ Чат отключен от глобального пула. Глобальные команды больше сюда не поступают.")
 
     elif cmd in ["pullinfo", "/pullinfo"]:
-        await message.answer(f"📊 **ИНФОРМАЦИЯ О ПУЛЕ:**\nПривязанных бесед: `{len(chat_ids)}`")
+        await message.answer(f"📊 **СТАТУС ПУЛА:**\nПривязанных бесед: `{len(chat_ids)}`")
 
-    # Глобальный сник (gsnick) - устанавливает ник во всех чатах пула
+
+    # =================================================================
+    # ⭐️ ГЛОБАЛЬНЫЕ КОМАНДЫ ПУЛА (РАБОТАЮТ ТОЛЬКО ТАМ, ГДЕ ЕСТЬ /pull)
+    # =================================================================
+
     elif cmd in ["gsnick", "/gsnick"]:
-        if user_level < 4: return await message.answer("❌ Требуется ранг Администратор [4+] для глобальных команд!")
+        if message.peer_id not in chat_ids:
+            return await message.answer("❌ Этот чат **не подключен к пулу**! Сначала введите `/pull` для привязки.")
+        if user_level < 4: return await message.answer("❌ Требуется ранг Администратор [4+]!")
+        
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
         new_nick = " ".join(args[2:]) if len(args) > 2 else (" ".join(args[1:]) if message.reply_message else "")
         if target and new_nick:
             get_user_data(target)["nick"] = new_nick
             save_data(DATA_DB_FILE, db)
-            await message.answer(f"🌐 ГЛОБАЛЬНО: Ник пользователя [id{target}|VK] изменен на **{new_nick}** во всех чатах пула!")
+            await message.answer(f"🌐 **ПУЛ:** Ник пользователя [id{target}|VK] изменен на **{new_nick}** во всех чатах пула!")
 
-    # Глобальный кик (gkick)
     elif cmd in ["gkick", "/gkick"]:
+        if message.peer_id not in chat_ids:
+            return await message.answer("❌ Чат не в пуле! Используйте `/pull`.")
         if user_level < 4: return
+        
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
         if target:
             count = 0
@@ -459,47 +457,53 @@ async def chat_handler(message: Message):
                     await bot.api.messages.remove_chat_user(chat_id=peer - 2000000000, member_id=target)
                     count += 1
                 except Exception: pass
-            await message.answer(f"⛔ ГЛОБАЛЬНЫЙ КИК: Участник удален из `{count}` бесед пула.")
+            await message.answer(f"⛔ **ПУЛ КИК:** Участник удален из `{count}` связанных бесед пула.")
 
-    # Глобальный бан (gban)
     elif cmd in ["gban", "/gban"]:
+        if message.peer_id not in chat_ids:
+            return await message.answer("❌ Чат не в пуле! Используйте `/pull`.")
         if user_level < 4: return
+        
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
         if target:
             if target not in db["globals"]["gbans"]: db["globals"]["gbans"].append(target)
             save_data(DATA_DB_FILE, db)
-            await message.answer(f"⛔ ГЛОБАЛЬНЫЙ БАН: [id{target}|Пользователь] занесен в общий черный список пула!")
+            await message.answer(f"⛔ **ПУЛ БАН:** Пользователь [id{target}|VK] занесен в черный список всего пула!")
 
-    # Глобальный мут (gmute)
     elif cmd in ["gmute", "/gmute"]:
+        if message.peer_id not in chat_ids:
+            return await message.answer("❌ Чат не в пуле! Используйте `/pull`.")
         if user_level < 4: return
+        
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
         if target:
             get_user_data(target)["muted_until"] = time.time() + 3600
             save_data(DATA_DB_FILE, db)
-            await message.answer(f"🔇 ГЛОБАЛЬНЫЙ МУТ: Пользователю [id{target}|VK] ограничен чат на 1 час.")
+            await message.answer(f"🔇 **ПУЛ МУТ:** Пользователю [id{target}|VK] ограничен чат на 1 час во всех чатах пула.")
 
-    # Глобальный зов (gzov)
     elif cmd in ["gzov", "/gzov"]:
+        if message.peer_id not in chat_ids:
+            return await message.answer("❌ Чат не в пуле! Используйте `/pull`.")
         if user_level < 4: return
-        txt = " ".join(args[1:]) if len(args) > 1 else "Глобальный сбор"
+        
+        txt = " ".join(args[1:]) if len(args) > 1 else "Глобальный сбор пула"
         count = 0
         for peer in list(chat_ids):
             try:
                 await bot.api.messages.send(peer_id=peer, message=f"🔔 @all @online **ГЛОБАЛЬНЫЙ СБОР ПУЛА:** {txt}", random_id=0)
                 count += 1
             except Exception: pass
-        await message.answer(f"📢 Глобальный вызов отправлен в `{count}` бесед пула!")
+        await message.answer(f"📢 Глобальный вызов отправлен в `{count}` привязанных бесед пула!")
 
     elif cmd in ["help", "команды", "!помощь", "/help", "помощь"]:
         help_text = (
-            "⭐ **ПРОЕКТ PRINCE RUSSIA — ЧАТ-МЕНЕДЖЕР (ПУЛ)** ⭐\n"
+            "⭐ **ПРОЕКТ PRINCE RUSSIA — ЧАТ-МЕНЕДЖЕР** ⭐\n"
             "───────────────────────────────\n"
             "👤 **Игрокам:** `пинг`, `правила`, `q`, `/стата`, `mtop`, `staff`, `online`\n"
-            "⭐️ **Модерация:** `кик`, `варн`, `мут`, `snick`, `rnick`, `nlist`, `роль`, `новаяроль`\n"
-            "🌐 **Пул бесед:** `pull`, `pullinfo`, `gsnick`, `gkick`, `gban`, `gmute`, `gzov`\n"
+            "⭐️ **Локально (в текущем чате):** `кик`, `варн`, `мут`, `snick`, `rnick`, `nlist`, `роль`\n"
+            "🌐 **Только через Пул (`/pull`):** `gsnick`, `gkick`, `gban`, `gmute`, `gzov`\n"
             "───────────────────────────────\n"
-            "💡 *Напиши в чат `/стата`, чтобы бот активировал твой статус Владельца!*"
+            "💡 *Напиши `/стата`, чтобы активировать права Владельца!*"
         )
         await message.answer(help_text)
 
