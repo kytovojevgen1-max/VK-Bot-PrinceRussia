@@ -57,7 +57,6 @@ user_ids = load_data(USERS_FILE, default_type=set)
 chat_ids = load_data(CHATS_FILE, default_type=set)
 db = load_data(DATA_DB_FILE, default_type=dict)
 
-# Жесткая и безопасная инициализация структуры базы
 if "users" not in db: db["users"] = {}
 if "chats" not in db: db["chats"] = {}
 if "chat_members" not in db: db["chat_members"] = {}
@@ -113,19 +112,26 @@ def get_chat_member(peer_id, uid):
     return db["chat_members"][peer_str][uid_str]
 
 async def get_target_user(message: Message, arg: str = None):
+    # Если есть пересланное сообщение
     if message.reply_message:
         return message.reply_message.from_id
     if not arg:
         return None
     clean_arg = arg.strip()
+    # Ищем упоминание формата [id12345|Имя]
     match = re.search(r'\[id(\d+)\|', clean_arg)
-    if match: return int(match.group(1))
+    if match: 
+        return int(match.group(1))
+    # Убираем лишние символы из ссылки или ID
     clean_arg = clean_arg.replace("https://vk.com/", "").replace("vk.com/", "").replace("@", "").replace("id", "")
-    if clean_arg.isdigit(): return int(clean_arg)
+    if clean_arg.isdigit(): 
+        return int(clean_arg)
     try:
         res = await bot.api.users.get(user_ids=[clean_arg])
-        if res: return res[0].id
-    except Exception: pass
+        if res: 
+            return res[0].id
+    except Exception: 
+        pass
     return None
 
 
@@ -160,7 +166,7 @@ def get_admin_keyboard():
 
 
 # =====================================================================
-# 4. ОБРАБОТКА ЛС БОТА
+# 4. ОБРАБОТКА ЛС БОТА И РАССЫЛОК
 # =====================================================================
 
 @bot.on.private_message(text=["/start", "Начать", "начать", "Меню", "меню", "Старт", "🔙 Главное меню", "❌ Отмена"])
@@ -199,7 +205,7 @@ async def broadcast_pm(message: Message):
 async def broadcast_chats(message: Message):
     if get_user_global(message.from_id)["level"] < 4: return
     user_states[message.from_id] = "chats"
-    await message.answer(f"✍️ Введите текст для рассылки **по привязанным чатам пула** (Всего чатов в пуле: {len(chat_ids)}):")
+    await message.answer(f"✍️ Введите текст для рассылки **по привязанным чатам пула** (Всего чатов: {len(chat_ids)}):")
 
 @bot.on.private_message()
 async def private_input(message: Message):
@@ -248,6 +254,11 @@ async def private_input(message: Message):
 async def chat_handler(message: Message):
     peer = message.peer_id
     uid = message.from_id
+
+    # Авто-добавление чата в общую базу бесед
+    if peer not in chat_ids:
+        chat_ids.add(peer)
+        save_data(CHATS_FILE, chat_ids)
 
     # Приветствие при добавлении бота в чат
     if message.action and message.action.type == "chat_invite_user":
@@ -343,7 +354,7 @@ async def chat_handler(message: Message):
         is_p = "Да" if peer in chat_ids else "Нет"
         await message.answer(f"💬 **ИНФОРМАЦИЯ О ЧАТЕ:**\n🆔 Peer ID: `{peer}`\n🌐 Подключен к пулу: **{is_p}**")
 
-    # --- ЛОКАЛЬНАЯ МОДЕРАЦИЯ И НИКИ ---
+    # --- ЛОКАЛЬНАЯ МОДЕРАЦИЯ И НИКИ (ПОДДЕРЖИВАЮТ РЕПЛАЙ И УПОМИНАНИЯ) ---
 
     elif cmd in ["кик", "kick", "/kick"]:
         if user_level < 1: return await message.answer("❌ Требуется ранг: Следящий [1+] (Напиши /стата)")
@@ -374,11 +385,16 @@ async def chat_handler(message: Message):
     elif cmd in ["setnick", "snick", "/snick", "ник", "!ник"]:
         if user_level < 1: return
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
-        new_nick = " ".join(args[2:]) if len(args) > 2 else (" ".join(args[1:]) if message.reply_message else "")
+        # Если есть реплай, весь текст после команды — это ник. Если нет реплая, пропускаем первое слово (упоминание)
+        if message.reply_message:
+            new_nick = " ".join(args[1:])
+        else:
+            new_nick = " ".join(args[2:]) if len(args) > 2 else ""
+            
         if target and new_nick:
             get_chat_member(peer, target)["nick"] = new_nick
             save_data(DATA_DB_FILE, db)
-            await message.answer(f"✅ Установлен ник **{new_nick}** для [id{target}|участника] (строго в этом чате).")
+            await message.answer(f"✅ Установлен ник **{new_nick}** для [id{target}|участника] (в этом чате).")
 
     elif cmd in ["removenick", "rnick", "/rnick", "рник"]:
         if user_level < 1: return
@@ -425,11 +441,15 @@ async def chat_handler(message: Message):
                 r_list += f"• Приоритет `{r_p}` ➔ **{r_n}**\n"
         await message.answer(r_list if peer_str in db["chat_roles"] and db["chat_roles"][peer_str] else "В этом чате нет кастомных ролей.")
 
-    elif cmd in ["role", "роль", "/role"] and len(args) >= 3:
+    elif cmd in ["role", "роль", "/role"]:
         if user_level < 2: return
-        target = await get_target_user(message, args[1])
-        r_name = " ".join(args[2:])
-        if target:
+        target = await get_target_user(message, args[1] if len(args) > 1 else None)
+        if message.reply_message:
+            r_name = " ".join(args[1:])
+        else:
+            r_name = " ".join(args[2:]) if len(args) > 2 else ""
+            
+        if target and r_name:
             get_chat_member(peer, target)["role"] = r_name
             save_data(DATA_DB_FILE, db)
             await message.answer(f"✅ В этом чате участнику [id{target}|VK] назначена роль: **{r_name}**!")
@@ -466,7 +486,11 @@ async def chat_handler(message: Message):
         if user_level < 4: return await message.answer("❌ Требуется ранг Администратор [4+]!")
         
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
-        new_nick = " ".join(args[2:]) if len(args) > 2 else (" ".join(args[1:]) if message.reply_message else "")
+        if message.reply_message:
+            new_nick = " ".join(args[1:])
+        else:
+            new_nick = " ".join(args[2:]) if len(args) > 2 else ""
+            
         if target and new_nick:
             for p_id in chat_ids:
                 get_chat_member(p_id, target)["nick"] = new_nick
