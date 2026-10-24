@@ -15,7 +15,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Prince Russia Ultimate Chat-Manager: ONLINE 24/7"
+    return "Prince Russia Ultimate Megabot Core: ACTIVE 24/7"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -30,7 +30,7 @@ Thread(target=run_flask, daemon=True).start()
 TOKEN = "vk1.a.msFlcd5y5n3ouSMUzsU5UYT2iSsz4oZpfqugFyFvBoDPuIJCuaTveRYFLZUWk7hLbnlLkLRivG5oRTMXhZU0SzOc1emMasJWDUD6NmWyEYjhc9uCa8dqbbTKb_EGadWM10CBTRPdvW-aeYAHS_sPp83X79GHyiDThjRh1qxRA_PdmEnk2mQGTYzf_gn8gby_7dwqLtrurXbwi2qw7w1kJw"
 bot = Bot(token=TOKEN)
 
-MAIN_OWNER_ID = 897082738  # Твой VK ID (Владелец)
+MAIN_OWNER_ID = 897082738  # Твой Главный VK ID (Владелец)
 
 USERS_FILE = "users.json"
 CHATS_FILE = "chats.json"
@@ -63,6 +63,7 @@ if "roles" not in db: db["roles"] = {}
 if "globals" not in db: 
     db["globals"] = {
         "gbans": [], 
+        "gmutes": [], 
         "filter": ["дискорд", "discord.gg", "t.me/"], 
         "rules": "📜 Правила бесед Prince Russia Official:\n1. Уважение к участникам.\n2. Запрещен спам и реклама.",
         "silence": False
@@ -84,20 +85,18 @@ RANKS = {
 def get_user_data(uid):
     uid_str = str(uid)
     if uid_str not in db["users"]:
-        # Автоматически выдаем тебе права владельца при первом обращении
         is_owner = 7 if int(uid) == MAIN_OWNER_ID else 0
         db["users"][uid_str] = {
             "coins": 15000,
             "level": is_owner,
+            "custom_role": None,
             "nick": None,
             "warns": 0,
             "muted_until": 0,
-            "last_bonus": 0,
             "messages_count": 0,
             "reg_date": time.strftime("%Y-%m-%d %H:%M:%S")
         }
     else:
-        # Страховка: если это ты, всегда обновляем до уровня 7
         if int(uid) == MAIN_OWNER_ID and db["users"][uid_str]["level"] < 7:
             db["users"][uid_str]["level"] = 7
     return db["users"][uid_str]
@@ -231,28 +230,26 @@ async def private_input(message: Message):
 
 
 # =====================================================================
-# 5. ЯДРО ОБРАБОТКИ СООБЩЕНИЙ И КОМАНД В БЕСЕДАХ
+# 5. ЯДРО ОБРАБОТКИ СООБЩЕНИЙ И КОМАНД В БЕСЕДАХ (ЧАТ-МЕНЕДЖЕР)
 # =====================================================================
 
 @bot.on.chat_message()
 async def chat_handler(message: Message):
-    # Сохраняем беседу в базу
     if message.peer_id not in chat_ids:
         chat_ids.add(message.peer_id)
         save_data(CHATS_FILE, chat_ids)
 
-    # ПРИВЕТСТВИЕ И ИНСТРУКЦИЯ ПРИ ДОБАВЛЕНИИ БОТА В ЧАТ
-    # (Проверяем, если бот зашел в беседу или его упомянули в новом чате)
+    # Приветствие при добавлении бота в чат
     if message.action and message.action.type == "chat_invite_user":
-        if message.action.member_id == -bot.api.token_settings: # если добавили самого бота
+        if message.action.member_id == -bot.api.token_settings:
             welcome_msg = (
                 "👑 **ПРИВЕТСТВУЮ ВАС НА ПРОЕКТЕ PRINCE RUSSIA!** 👑\n"
                 "───────────────────────────────\n"
-                "🤖 Официальный Чат-Менеджер успешно подключен к беседе!\n\n"
-                "⚙️ **ВАЖНО ДЛЯ РАБОТЫ:**\n"
+                "🤖 Официальный Чат-Менеджер успешно подключен!\n\n"
+                "⚙️ **ВАЖНО:**\n"
                 "1. Выдайте боту **права Администратора (звездочку)** в беседе.\n"
-                "2. Убедитесь, что в настройках беседы включен пункт **«Доступ к переписке»**.\n\n"
-                "📌 Напишите в чат `/стата` или `!помощь`, чтобы начать работу!"
+                "2. Разрешите доступ к переписке.\n\n"
+                "📌 Напишите `/стата` или `/help`, чтобы активировать права Владельца!"
             )
             return await message.answer(welcome_msg)
 
@@ -261,7 +258,6 @@ async def chat_handler(message: Message):
     cmd = args[0].lower() if args else ""
     uid = message.from_id
     
-    # Получаем данные пользователя и автоматически выдаем тебе права
     u_data = get_user_data(uid)
     user_level = u_data["level"]
 
@@ -291,7 +287,7 @@ async def chat_handler(message: Message):
     # =================================================================
 
     if cmd in ["test", "пинг", "ping", "/ping"]:
-        await message.answer("🏓 **Понг!** Чат-менеджер Prince Russia активен и работает на 100%!")
+        await message.answer("🏓 **Понг!** Чат-менеджер Prince Russia работает идеально!")
 
     elif cmd in ["правила", "rules", "/rules"]:
         await message.answer(f"📜 **ПРАВИЛА БЕСЕДЫ:**\n{db['globals']['rules']}")
@@ -304,13 +300,13 @@ async def chat_handler(message: Message):
     elif cmd in ["/id", "/stats", "статистика", "stats", "/стата", "стата"]:
         target_id = await get_target_user(message, args[1] if len(args) > 1 else None) or uid
         t_data = get_user_data(target_id)
-        role_title = RANKS.get(t_data["level"], "Пользователь")
+        role_title = t_data["custom_role"] or RANKS.get(t_data["level"], "Пользователь")
         msg = (
             f"👤 **ПРОФИЛЬ УЧАСТНИКА:**\n"
             "───────────────────────────────\n"
             f"🆔 VK ID: `{target_id}`\n"
             f"🏷 Ник: **{t_data['nick'] or 'Не установлен'}**\n"
-            f"👑 Ранг в боте: **{role_title} [{t_data['level']}]**\n"
+            f"👑 Роль: **{role_title} [{t_data['level']}]**\n"
             f"💰 Баланс: **{t_data['coins']:,} Coins**\n"
             f"✉️ Сообщений: `{t_data['messages_count']}`\n"
             f"⚠️ Варны: `{t_data['warns']}/3`\n"
@@ -333,7 +329,7 @@ async def chat_handler(message: Message):
         await message.answer("🟢 **ПОЛЬЗОВАТЕЛИ В СЕТИ:**\nВсе участники успешно синхронизированы с ботом!")
 
     elif cmd in ["чатинфо", "chat"]:
-        await message.answer(f"💬 **ИНФОРМАЦИЯ О ЧАТЕ:**\n🆔 Peer ID: `{message.peer_id}`\n👥 Подключено бесед в базе: `{len(chat_ids)}`")
+        await message.answer(f"💬 **ИНФОРМАЦИЯ О ЧАТЕ:**\n🆔 Peer ID: `{message.peer_id}`\n👥 Подключено бесед в пуле: `{len(chat_ids)}`")
 
     elif cmd in ["mutelist", "mlist"]:
         muted = [f"• [id{k}|Участник]" for k, v in db["users"].items() if v.get("muted_until", 0) > time.time()]
@@ -343,10 +339,11 @@ async def chat_handler(message: Message):
         warned = [f"• [id{k}|Участник] — {v['warns']}/3 варнов" for k, v in db["users"].items() if v.get("warns", 0) > 0]
         await message.answer("⚠️ **СПИСОК С ВАРНАМИ:**\n" + ("\n".join(warned) if warned else "Предупреждений ни у кого нет."))
 
-    # --- МОДЕРАЦИЯ ---
 
-    elif cmd in ["кик", "kick"]:
-        if user_level < 1: return await message.answer("❌ Требуется ранг: Следящий [1+] (Напиши /стата для авто-выдачи прав)")
+    # --- МОДЕРАЦИЯ И УПРАВЛЕНИЕ НИКАМИ И РОЛЯМИ ---
+
+    elif cmd in ["кик", "kick", "/kick"]:
+        if user_level < 1: return await message.answer("❌ Требуется ранг: Следящий [1+] (Напиши /стата для активации прав)")
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
         if target:
             try:
@@ -354,7 +351,7 @@ async def chat_handler(message: Message):
                 await message.answer(f"🚪 Участник [id{target}|VK] исключен.")
             except Exception: await message.answer("❌ Выдайте боту права администратора!")
 
-    elif cmd in ["варн", "warn"]:
+    elif cmd in ["варн", "warn", "/warn"]:
         if user_level < 1: return
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
         if target:
@@ -363,7 +360,7 @@ async def chat_handler(message: Message):
             save_data(DATA_DB_FILE, db)
             await message.answer(f"⚠️ Участнику [id{target}|VK] выдан варн ({t['warns']}/3).")
 
-    elif cmd in ["мут", "mute"]:
+    elif cmd in ["мут", "mute", "/mute"]:
         if user_level < 2: return await message.answer("❌ Требуется ранг: Модератор [2+]")
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
         if target:
@@ -371,7 +368,7 @@ async def chat_handler(message: Message):
             save_data(DATA_DB_FILE, db)
             await message.answer(f"🔇 Участнику [id{target}|VK] выдан мут на 15 минут.")
 
-    elif cmd in ["setnick", "snick", "ник"]:
+    elif cmd in ["setnick", "snick", "/snick", "ник", "!ник"]:
         if user_level < 1: return
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
         new_nick = " ".join(args[2:]) if len(args) > 2 else (" ".join(args[1:]) if message.reply_message else "")
@@ -380,16 +377,128 @@ async def chat_handler(message: Message):
             save_data(DATA_DB_FILE, db)
             await message.answer(f"✅ Ник изменен на: **{new_nick}**")
 
-    elif cmd in ["вызов", "zov", "zov", "!зов"]:
+    elif cmd in ["removenick", "rnick", "/rnick", "рник"]:
+        if user_level < 1: return
+        target = await get_target_user(message, args[1] if len(args) > 1 else None)
+        if target:
+            get_user_data(target)["nick"] = None
+            save_data(DATA_DB_FILE, db)
+            await message.answer("❌ Никнейм успешно удален.")
+
+    elif cmd in ["nicklist", "nlist", "/nlist"]:
+        nlist = [f"• [id{k}|ID {k}] ➔ **{v['nick']}**" for k, v in db["users"].items() if v.get("nick")]
+        await message.answer("📋 **СПИСОК УСТАНОВЛЕННЫХ НИКОВ:**\n───────────────────────────────\n" + ("\n".join(nlist) if nlist else "Пусто"))
+
+    elif cmd in ["новаяроль"]:
+        if user_level < 2: return
+        if len(args) >= 3 and args[1].isdigit():
+            prio = int(args[1])
+            r_name = " ".join(args[2:])
+            db["roles"][r_name] = {"priority": prio, "name": r_name}
+            save_data(DATA_DB_FILE, db)
+            await message.answer(f"🎉 Создана новая роль **{r_name}** с приоритетом {prio}!")
+
+    elif cmd in ["удалитьроль"]:
+        if user_level < 2: return
+        r_name = " ".join(args[1:])
+        if r_name in db["roles"]:
+            del db["roles"][r_name]
+            save_data(DATA_DB_FILE, db)
+            await message.answer(f"❌ Роль **{r_name}** удалена.")
+
+    elif cmd in ["role", "роль", "/role"] and len(args) >= 3:
+        if user_level < 2: return
+        target = await get_target_user(message, args[1])
+        r_name = " ".join(args[2:])
+        if target:
+            get_user_data(target)["custom_role"] = r_name
+            save_data(DATA_DB_FILE, db)
+            await message.answer(f"✅ Пользователю [id{target}|VK] назначена роль: **{r_name}**!")
+
+    elif cmd in ["вызов", "zov", "zov", "/zov", "!зов"]:
         if user_level < 1: return
         await message.answer("🔔 @all @online **ОБЩИЙ СБОР ВСЕХ УЧАСТНИКОВ!** Внимание!")
 
-    elif cmd in ["help", "команды", "!помощь", "помощь"]:
+
+    # =================================================================
+    # ⭐️ ГЛОБАЛЬНЫЕ КОМАНДЫ ПУЛА (С ПРЕФИКСАМИ G...)
+    # =================================================================
+
+    elif cmd in ["pull", "/pull"]:
+        if message.peer_id not in chat_ids:
+            chat_ids.add(message.peer_id)
+            save_data(CHATS_FILE, chat_ids)
+        await message.answer(f"✅ Чат успешно привязан к пулу! Всего привязано бесед: `{len(chat_ids)}`")
+
+    elif cmd in ["rpull", "/rpull"]:
+        if message.peer_id in chat_ids:
+            chat_ids.remove(message.peer_id)
+            save_data(CHATS_FILE, chat_ids)
+        await message.answer("❌ Чат отвязан от пула.")
+
+    elif cmd in ["pullinfo", "/pullinfo"]:
+        await message.answer(f"📊 **ИНФОРМАЦИЯ О ПУЛЕ:**\nВсего привязанных конференций: `{len(chat_ids)}`")
+
+    # Глобальный сник (gsnick) - устанавливает ник во всех чатах сразу
+    elif cmd in ["gsnick", "/gsnick"]:
+        if user_level < 4: return await message.answer("❌ Требуется ранг Администратор [4+] для глобальных команд!")
+        target = await get_target_user(message, args[1] if len(args) > 1 else None)
+        new_nick = " ".join(args[2:]) if len(args) > 2 else (" ".join(args[1:]) if message.reply_message else "")
+        if target and new_nick:
+            get_user_data(target)["nick"] = new_nick
+            save_data(DATA_DB_FILE, db)
+            await message.answer(f"🌐 ГЛОБАЛЬНО: Ник пользователя [id{target}|VK] изменен на **{new_nick}** во всех чатах пула!")
+
+    # Глобальный кик (gkick)
+    elif cmd in ["gkick", "/gkick"]:
+        if user_level < 4: return
+        target = await get_target_user(message, args[1] if len(args) > 1 else None)
+        if target:
+            count = 0
+            for peer in list(chat_ids):
+                try:
+                    await bot.api.messages.remove_chat_user(chat_id=peer - 2000000000, member_id=target)
+                    count += 1
+                except Exception: pass
+            await message.answer(f"⛔ ГЛОБАЛЬНЫЙ КИК: Пользователь исключен из `{count}` бесед пула.")
+
+    # Глобальный бан (gban)
+    elif cmd in ["gban", "/gban"]:
+        if user_level < 4: return
+        target = await get_target_user(message, args[1] if len(args) > 1 else None)
+        if target:
+            if target not in db["globals"]["gbans"]: db["globals"]["gbans"].append(target)
+            save_data(DATA_DB_FILE, db)
+            await message.answer(f"⛔ ГЛОБАЛЬНЫЙ БАН: Пользователь [id{target}|VK] занесен в черный список всех бесед!")
+
+    # Глобальный мут (gmute)
+    elif cmd in ["gmute", "/gmute"]:
+        if user_level < 4: return
+        target = await get_target_user(message, args[1] if len(args) > 1 else None)
+        if target:
+            get_user_data(target)["muted_until"] = time.time() + 3600
+            save_data(DATA_DB_FILE, db)
+            await message.answer(f"🔇 ГЛОБАЛЬНЫЙ МУТ: Пользователь [id{target}|VK] заглушен во всех чатах на 1 час.")
+
+    # Глобальный зов (gzov)
+    elif cmd in ["gzov", "/gzov"]:
+        if user_level < 4: return
+        txt = " ".join(args[1:]) if len(args) > 1 else "Глобальный сбор"
+        count = 0
+        for peer in list(chat_ids):
+            try:
+                await bot.api.messages.send(peer_id=peer, message=f"🔔 @all @online **ГЛОБАЛЬНЫЙ СБОР ПУЛА:** {txt}", random_id=0)
+                count += 1
+            except Exception: pass
+        await message.answer(f"📢 Глобальный зов отправлен в `{count}` бесед пула!")
+
+    elif cmd in ["help", "команды", "!помощь", "/help", "помощь"]:
         help_text = (
-            "⭐ **МЕНЕДЖЕР PRINCE RUSSIA — КОМАНДЫ** ⭐\n"
+            "⭐ **ПРОЕКТ PRINCE RUSSIA — ЧАТ-МЕНЕДЖЕР** ⭐\n"
             "───────────────────────────────\n"
             "👤 **Игрокам:** `пинг`, `правила`, `q`, `/стата`, `mtop`, `staff`, `online`\n"
-            "⭐️ **Администрирование:** `кик`, `варн`, `мут`, `snick`, `зов`\n"
+            "⭐️ **Модерация:** `кик`, `варн`, `мут`, `snick`, `rnick`, `nlist`, `роль`, `новаяроль`\n"
+            "🌐 **Пул бесед:** `pull`, `pullinfo`, `gsnick`, `gkick`, `gban`, `gmute`, `gzov`\n"
             "───────────────────────────────\n"
             "💡 *Напиши в чат `/стата`, чтобы бот активировал твой статус Владельца!*"
         )
