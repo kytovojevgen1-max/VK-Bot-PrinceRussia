@@ -15,7 +15,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Prince Russia Ultimate Megabot Core: ACTIVE 24/7"
+    return "Prince Russia Ultimate Megabot Core: STABLE & ACTIVE 24/7"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -25,7 +25,7 @@ Thread(target=run_flask, daemon=True).start()
 
 
 # =====================================================================
-# 2. НАСТРОЙКИ, ТОКЕН И БАЗЫ ДАННЫХ
+# 2. НАСТРОЙКИ И БАЗЫ ДАННЫХ
 # =====================================================================
 TOKEN = "vk1.a.msFlcd5y5n3ouSMUzsU5UYT2iSsz4oZpfqugFyFvBoDPuIJCuaTveRYFLZUWk7hLbnlLkLRivG5oRTMXhZU0SzOc1emMasJWDUD6NmWyEYjhc9uCa8dqbbTKb_EGadWM10CBTRPdvW-aeYAHS_sPp83X79GHyiDThjRh1qxRA_PdmEnk2mQGTYzf_gn8gby_7dwqLtrurXbwi2qw7w1kJw"
 bot = Bot(token=TOKEN)
@@ -57,18 +57,18 @@ user_ids = load_data(USERS_FILE, default_type=set)
 chat_ids = load_data(CHATS_FILE, default_type=set)
 db = load_data(DATA_DB_FILE, default_type=dict)
 
+# Жесткая и безопасная инициализация структуры базы
 if "users" not in db: db["users"] = {}
 if "chats" not in db: db["chats"] = {}
 if "chat_members" not in db: db["chat_members"] = {}
 if "chat_roles" not in db: db["chat_roles"] = {}
+if "globals" not in db: db["globals"] = {}
 
-if "globals" not in db: 
-    db["globals"] = {
-        "gbans": [], 
-        "filter": ["дискорд", "discord.gg", "t.me/"], 
-        "rules": "📜 Правила бесед Prince Russia Official:\n1. Уважение к участникам.\n2. Запрещен спам и реклама.",
-        "silence": False
-    }
+if "gbans" not in db["globals"]: db["globals"]["gbans"] = []
+if "filter" not in db["globals"]: db["globals"]["filter"] = ["дискорд", "discord.gg", "t.me/"]
+if "rules" not in db["globals"]: 
+    db["globals"]["rules"] = "📜 Правила бесед Prince Russia Official:\n1. Уважение к участникам.\n2. Запрещен спам и реклама."
+if "silence" not in db["globals"]: db["globals"]["silence"] = False
 
 user_states = {}
 
@@ -249,7 +249,7 @@ async def chat_handler(message: Message):
     peer = message.peer_id
     uid = message.from_id
 
-    # Приветствие при добавлении бота в чат (без ошибок атрибутов)
+    # Приветствие при добавлении бота в чат
     if message.action and message.action.type == "chat_invite_user":
         welcome_msg = (
             "👑 **ПРИВЕТСТВУЮ ВАС НА ПРОЕКТЕ PRINCE RUSSIA!** 👑\n"
@@ -263,6 +263,7 @@ async def chat_handler(message: Message):
         return await message.answer(welcome_msg)
 
     text = message.text
+    if not text: return
     args = text.split()
     cmd = args[0].lower() if args else ""
     
