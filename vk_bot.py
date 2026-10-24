@@ -234,19 +234,22 @@ async def private_input(message: Message):
 
 @bot.on.chat_message()
 async def chat_handler(message: Message):
-    # Приветствие при добавлении бота в чат
+    if message.peer_id not in chat_ids:
+        chat_ids.add(message.peer_id)
+        save_data(CHATS_FILE, chat_ids)
+
+    # Приветствие при добавлении бота в чат (исправлено без обращения к token_settings)
     if message.action and message.action.type == "chat_invite_user":
-        if message.action.member_id == -bot.api.token_settings:
-            welcome_msg = (
-                "👑 **ПРИВЕТСТВУЮ ВАС НА ПРОЕКТЕ PRINCE RUSSIA!** 👑\n"
-                "───────────────────────────────\n"
-                "🤖 Официальный Чат-Менеджер успешно подключен!\n\n"
-                "⚙️ **ИНСТРУКЦИЯ:**\n"
-                "1. Выдайте боту **права Администратора (звездочку)**.\n"
-                "2. Если хотите добавить этот чат в глобальный пул, введите `/pull`.\n"
-                "3. Напишите `/стата`, чтобы активировать права Владельца!"
-            )
-            return await message.answer(welcome_msg)
+        welcome_msg = (
+            "👑 **ПРИВЕТСТВУЮ ВАС НА ПРОЕКТЕ PRINCE RUSSIA!** 👑\n"
+            "───────────────────────────────\n"
+            "🤖 Официальный Чат-Менеджер успешно подключен!\n\n"
+            "⚙️ **ИНСТРУКЦИЯ:**\n"
+            "1. Выдайте боту **права Администратора (звездочку)**.\n"
+            "2. Введите команду `/pull`, чтобы привязать чат к общему пулу проекта.\n"
+            "3. Напишите `/стата`, чтобы активировать права Владельца!"
+        )
+        return await message.answer(welcome_msg)
 
     text = message.text
     args = text.split()
@@ -278,7 +281,7 @@ async def chat_handler(message: Message):
 
 
     # =================================================================
-    # ⭐️ ЛОКАЛЬНЫЕ КОМАНДЫ ЧАТА (РАБОТАЮТ ТОЛЬКО ЗДЕСЬ)
+    # ⭐️ ЛОКАЛЬНЫЕ КОМАНДЫ ЧАТА
     # =================================================================
 
     if cmd in ["test", "пинг", "ping", "/ping"]:
@@ -416,13 +419,13 @@ async def chat_handler(message: Message):
         if message.peer_id not in chat_ids:
             chat_ids.add(message.peer_id)
             save_data(CHATS_FILE, chat_ids)
-        await message.answer(f"🌐 **Чат успешно подключен к глобальному пулу!**\nТеперь сюда будут прилетать глобальные команды (с префиксом G). Всего чатов в пуле: `{len(chat_ids)}`")
+        await message.answer(f"🌐 **Чат успешно подключен к глобальному пулу!**\nВсего бесед в пуле: `{len(chat_ids)}`")
 
     elif cmd in ["rpull", "/rpull"]:
         if message.peer_id in chat_ids:
             chat_ids.remove(message.peer_id)
             save_data(CHATS_FILE, chat_ids)
-        await message.answer("❌ Чат отключен от глобального пула. Глобальные команды больше сюда не поступают.")
+        await message.answer("❌ Чат отключен от глобального пула.")
 
     elif cmd in ["pullinfo", "/pullinfo"]:
         await message.answer(f"📊 **СТАТУС ПУЛА:**\nПривязанных бесед: `{len(chat_ids)}`")
