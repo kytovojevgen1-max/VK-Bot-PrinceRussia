@@ -14,7 +14,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Prince Russia Ultimate Core v10.1: ACTIVE 24/7"
+    return "Prince Russia Ultimate Core v10.2: ACTIVE 24/7"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -58,7 +58,7 @@ db = load_data(DATA_DB_FILE, default_type=dict)
 
 if "users" not in db: db["users"] = {}
 if "promos" not in db: db["promos"] = {"PRINCE": 10000000, "RUSSIA": 5000000, "START": 25000000}
-if "globals" not in db: db["globals"] = {"banned_users": []}
+if "globals" not in db: db["globals"] = {"banned_users": {}}  # {str(uid): {"reason": "...", "term": "..."}}
 if "tickets" not in db: db["tickets"] = {}
 
 user_states = {}
@@ -72,7 +72,7 @@ RANKS = {
     4: "Спец. Администратор",
     5: "Главный Администратор",
     6: "Руководитель",
-    7: "Заместитель Разработчика",
+    7: "Владелец / Зам. Владельца",
     8: "Разработчик игры"
 }
 
@@ -146,6 +146,7 @@ def get_admin_keyboard(user_level: int):
         keyboard.add(Text("📢 Рассылка в ЛС"), color=KeyboardButtonColor.POSITIVE)
         keyboard.add(Text("💬 Рассылка по Беседам"), color=KeyboardButtonColor.POSITIVE)
         keyboard.row()
+        keyboard.add(Text("👥 Список Игроков"), color=KeyboardButtonColor.PRIMARY)
     keyboard.add(Text("📋 Список Тикетов"), color=KeyboardButtonColor.PRIMARY)
     keyboard.add(Text("👥 Список Админов"), color=KeyboardButtonColor.PRIMARY)
     keyboard.row()
@@ -157,6 +158,7 @@ def get_admin_keyboard(user_level: int):
     keyboard.row()
     keyboard.add(Text("🚫 Забанить"), color=KeyboardButtonColor.NEGATIVE)
     keyboard.add(Text("🟢 Разбанить"), color=KeyboardButtonColor.POSITIVE)
+    keyboard.add(Text("📋 Бан-лист"), color=KeyboardButtonColor.NEGATIVE)
     keyboard.row()
     keyboard.add(Text("📊 Статистика Бота"), color=KeyboardButtonColor.SECONDARY)
     keyboard.add(Text("🔙 Главное меню"), color=KeyboardButtonColor.NEGATIVE)
@@ -170,8 +172,9 @@ def get_admin_keyboard(user_level: int):
 @bot.on.private_message(text=["/start", "Начать", "начать", "Меню", "меню", "Старт", "🔙 Главное меню", "❌ Отмена"])
 async def start_handler(message: Message):
     uid = message.from_id
-    if uid in db["globals"]["banned_users"]:
-        return await message.answer("❌ Ваш аккаунт заблокирован в боте!")
+    if str(uid) in db["globals"]["banned_users"]:
+        ban_info = db["globals"]["banned_users"][str(uid)]
+        return await message.answer(f"❌ Ваш аккаунт заблокирован в боте!\nПричина: {ban_info.get('reason', 'Не указана')}\nСрок: {ban_info.get('term', 'Навсегда')}")
         
     user_ids.add(uid)
     save_data(USERS_FILE, user_ids)
@@ -186,10 +189,10 @@ async def start_handler(message: Message):
     save_data(DATA_DB_FILE, db)
     
     if uid in user_states: del user_states[uid]
-    is_admin = u_data["level"] >= 3 or uid == MAIN_OWNER_ID
+    is_admin = u_data["level"] >= 4 or uid == MAIN_OWNER_ID  # Админ-панель с 4 уровня
     
     welcome_text = (
-        "👑 **PRINCE RUSSIA — MOBILE PROJECT v10.1** 👑\n"
+        "👑 **PRINCE RUSSIA — MOBILE PROJECT v10.2** 👑\n"
         "*(Полная копия Black Russia)*\n"
         "───────────────────────────────\n"
         f"🏷 Префикс: **{u_data.get('prefix', '[Игрок]')}**\n"
@@ -204,7 +207,7 @@ async def start_handler(message: Message):
 @bot.on.private_message(text="👑 Админ-Панель")
 async def admin_panel(message: Message):
     u_data = get_user_data(message.from_id)
-    if u_data["level"] < 3: return
+    if u_data["level"] < 4: return await message.answer("❌ Админ-панель доступна с 4 уровня!")
     await message.answer("🛠 **АДМИН-ПАНЕЛЬ PRINCE RUSSIA**\nВыберите действие с помощью кнопок ниже:", keyboard=get_admin_keyboard(u_data["level"]))
 
 @bot.on.private_message(text=["📋 Профиль", "/profile"])
@@ -283,7 +286,7 @@ async def support_prompt(message: Message):
 @bot.on.private_message(text="📋 Список Тикетов")
 async def list_tickets(message: Message):
     u_data = get_user_data(message.from_id)
-    if u_data["level"] < 3: return
+    if u_data["level"] < 4: return
     if not db["tickets"]:
         return await message.answer("📂 Активных тикетов в поддержке нет.")
     
@@ -298,7 +301,7 @@ async def list_tickets(message: Message):
 @bot.on.private_message(text="👥 Список Админов")
 async def list_admins(message: Message):
     u_data = get_user_data(message.from_id)
-    if u_data["level"] < 3: return
+    if u_data["level"] < 4: return
     
     admins = []
     for u_str, u_info in db["users"].items():
@@ -322,11 +325,48 @@ async def list_admins(message: Message):
     adm_msg += "───────────────────────────────"
     await message.answer(adm_msg, keyboard=get_admin_keyboard(u_data["level"]))
 
+@bot.on.private_message(text="👥 Список Игроков")
+async def list_all_players(message: Message):
+    u_data = get_user_data(message.from_id)
+    if u_data["level"] < 6: return await message.answer("❌ Доступно только с 6 уровня (Руководитель и выше)!")
+    
+    if not db["users"]:
+        return await message.answer("👥 В базе пока нет зарегистрированных игроков.")
+        
+    players_msg = "👥 **СПИСОК ВСЕХ ИГРОКОВ В БОТЕ:**\n───────────────────────────────\n"
+    count = 0
+    for p_id, p_info in list(db["users"].items())[:40]:
+        count += 1
+        p_handle = f"@{p_info.get('username', f'id{p_id}')}" if p_info.get('username') else f"ID: {p_id}"
+        money = p_info.get('money', 0)
+        players_msg += f"{count}. [id{p_id}|{p_handle}] ([id{p_id}|ID {p_id}]) — 💵 `{money:,} руб.`\n"
+        
+    players_msg += f"───────────────────────────────\n Всего игроков в базе: `{len(db['users'])}`"
+    await message.answer(players_msg, keyboard=get_admin_keyboard(u_data["level"]))
+
+@bot.on.private_message(text="📋 Бан-лист")
+async def ban_list_handler(message: Message):
+    u_data = get_user_data(message.from_id)
+    if u_data["level"] < 4: return
+    
+    banned = db["globals"]["banned_users"]
+    if not banned:
+        return await message.answer("📋 Бан-лист пуст. Нарушителей нет!")
+        
+    b_msg = "📋 **АКТУАЛЬНЫЙ БАН-ЛИСТ БОТА:**\n───────────────────────────────\n"
+    for b_id, b_info in banned.items():
+        b_id_int = int(b_id)
+        p_info = db["users"].get(b_id, {})
+        p_handle = f"@{p_info.get('username', f'id{b_id}')}" if p_info.get('username') else f"ID: {b_id}"
+        b_msg += f"• [id{b_id_int}|{p_handle}] ([id{b_id_int}|ID {b_id}])\n  📌 Причина: *{b_info.get('reason', 'Не указана')}*\n  ⏳ Срок: *{b_info.get('term', 'Навсегда')}*\n───────────────────────────────\n"
+        
+    await message.answer(b_msg, keyboard=get_admin_keyboard(u_data["level"]))
+
 @bot.on.private_message(text="📊 Статистика Бота")
 async def stats_handler(message: Message):
     u_data = get_user_data(message.from_id)
-    if u_data["level"] < 3: return
-    await message.answer(f"📊 **СТАТИСТИКА ПРОЕКТА:**\n👤 Игроков: `{len(user_ids)}`\n💬 Чатов рассылки: `{len(chat_ids)}`\n📂 Активных тикетов: `{len(db['tickets'])}`")
+    if u_data["level"] < 4: return
+    await message.answer(f"📊 **СТАТИСТИКА ПРОЕКТА:**\n👤 Игроков: `{len(user_ids)}`\n💬 Чатов рассылки: `{len(chat_ids)}`\n📂 Активных тикетов: `{len(db['tickets'])}`\n🚫 Забанено: `{len(db['globals']['banned_users'])}`")
 
 # КНОПКИ РАССЫЛОК (ТОЛЬКО ДЛЯ 6+ ЛВЛ)
 @bot.on.private_message(text="📢 Рассылка в ЛС")
@@ -346,45 +386,45 @@ async def broadcast_chats_btn(message: Message):
 # КНОПОЧНЫЕ ДЕЙСТВИЯ АДМИНОВ
 @bot.on.private_message(text="💰 Выдать Рубли")
 async def btn_give_money(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
+    if get_user_data(message.from_id)["level"] < 4: return
     user_states[message.from_id] = "step_money_user"
-    await message.answer("💰 **ВЫДАЧА РУБЛЕЙ**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` игрока:")
+    await message.answer("💰 **ВЫДАЧА РУБЛЕЙ**\n\nШаг 1 из 2: Введите `@username`, ссылку или кликабельный ID игрока:")
 
 @bot.on.private_message(text="💎 Выдать BC")
 async def btn_give_bc(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
+    if get_user_data(message.from_id)["level"] < 4: return
     user_states[message.from_id] = "step_bc_user"
-    await message.answer("💎 **ВЫДАЧА BC ДОНАТА**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` игрока:")
+    await message.answer("💎 **ВЫДАЧА BC ДОНАТА**\n\nШаг 1 из 2: Введите `@username`, ссылку или кликабельный ID игрока:")
 
 @bot.on.private_message(text="👑 Выдать Админку")
 async def btn_give_admin(message: Message):
     if get_user_data(message.from_id)["level"] < 5: return await message.answer("❌ Доступно с 5 уровня!")
     user_states[message.from_id] = "step_admin_user"
-    await message.answer("👑 **ВЫДАЧА АДМИНИСТРИРОВАНИЯ**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` игрока:")
+    await message.answer("👑 **ВЫДАЧА АДМИНИСТРИРОВАНИЯ**\n\nШаг 1 из 2: Введите `@username`, ссылку или кликабельный ID игрока:")
 
 @bot.on.private_message(text="🏷 Изменить Префикс")
 async def btn_set_prefix(message: Message):
     if get_user_data(message.from_id)["level"] < 5: return await message.answer("❌ Доступно с 5 уровня!")
     user_states[message.from_id] = "step_prefix_user"
-    await message.answer("🏷 **СМЕНА ПРЕФИКСА**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` игрока:")
+    await message.answer("🏷 **СМЕНА ПРЕФИКСА**\n\nШаг 1 из 2: Введите `@username`, ссылку или кликабельный ID игрока:")
 
 @bot.on.private_message(text="🚫 Забанить")
 async def btn_ban(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
+    if get_user_data(message.from_id)["level"] < 4: return
     user_states[message.from_id] = "step_ban_user"
-    await message.answer("🚫 **БЛОКИРОВКА ИГРОКА**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` нарушителя:")
+    await message.answer("🚫 **БЛОКИРОВКА ИГРОКА**\n\nШаг 1 из 3: Введите `@username`, ссылку или кликабельный ID нарушителя:")
 
 @bot.on.private_message(text="🟢 Разбанить")
 async def btn_unban(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
+    if get_user_data(message.from_id)["level"] < 4: return
     user_states[message.from_id] = "step_unban"
-    await message.answer("🟢 **РАЗБЛОКИРОВКА ИГРОКА**\n\nВведите `@username`, ссылку или `ID` игрока для снятия бана:")
+    await message.answer("🟢 **РАЗБЛОКИРОВКА ИГРОКА**\n\nВведите `@username`, ссылку или кликабельный ID игрока для снятия бана:")
 
 @bot.on.private_message(text="💬 Ответить на тикет")
 async def btn_ans_ticket(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
+    if get_user_data(message.from_id)["level"] < 4: return
     user_states[message.from_id] = "step_ans_user"
-    await message.answer("💬 **ОТВЕТ НА ТИКЕТ ПОДДЕРЖКИ**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` игрока, которому хотите ответить:")
+    await message.answer("💬 **ОТВЕТ НА ТИКЕТ ПОДДЕРЖКИ**\n\nШаг 1 из 2: Введите `@username`, ссылку или кликабельный ID игрока:")
 
 @bot.on.private_message(text="🚀 Скачать игру (Сайт)")
 async def download_game(message: Message):
@@ -403,14 +443,14 @@ async def download_game(message: Message):
 @bot.on.private_message()
 async def private_input(message: Message):
     uid = message.from_id
-    if uid in db["globals"]["banned_users"]: return
+    if str(uid) in db["globals"]["banned_users"]: return
     
     user_ids.add(uid)
     save_data(USERS_FILE, user_ids)
     
     u_data = get_user_data(uid)
     
-    if message.payload and u_data["level"] >= 3:
+    if message.payload and u_data["level"] >= 4:
         try:
             payload_data = json.loads(message.payload) if isinstance(message.payload, str) else message.payload
             action = payload_data.get("action")
@@ -546,7 +586,7 @@ async def private_input(message: Message):
             t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
             return await message.answer(f"✅ Успешно установлен префикс **{pref}** для игрока [id{t_id}|{t_handle}].", keyboard=get_admin_keyboard(u_data["level"]))
 
-        # --- ПОШАГОВЫЙ ВВОД ДЛЯ БАНА С ПРИЧИНОЙ ---
+        # --- ПОШАГОВЫЙ ВВОД ДЛЯ БАНА (ПРИЧИНА И СРОК) ---
         elif state == "step_ban_user":
             del user_states[uid]
             t_id = await resolve_user(text)
@@ -554,28 +594,38 @@ async def private_input(message: Message):
             temp_admin_data[uid] = {"target_uid": t_id}
             user_states[uid] = "step_ban_reason"
             t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
-            return await message.answer(f"Выбран нарушитель: [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}])\n\nШаг 2 из 2: Введите причину блокировки:")
+            return await message.answer(f"Выбран нарушитель: [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}])\n\nШаг 2 из 3: Введите **причину** блокировки:")
             
         elif state == "step_ban_reason":
             del user_states[uid]
             reason = text.strip()
+            temp_admin_data[uid]["reason"] = reason
+            user_states[uid] = "step_ban_term"
+            return await message.answer("Шаг 3 из 3: Введите **срок** блокировки (например: `1 день`, `12 часов`, `навсегда`):")
+            
+        elif state == "step_ban_term":
+            del user_states[uid]
+            term = text.strip()
             t_id = temp_admin_data.get(uid, {}).get("target_uid")
-            if t_id not in db["globals"]["banned_users"]:
-                db["globals"]["banned_users"].append(t_id)
-                save_data(DATA_DB_FILE, db)
+            reason = temp_admin_data.get(uid, {}).get("reason", "Не указана")
+            
+            db["globals"]["banned_users"][str(t_id)] = {"reason": reason, "term": term}
+            save_data(DATA_DB_FILE, db)
+            
             try:
-                await bot.api.messages.send(user_id=t_id, message=f"🚫 Вы были заблокированы в официальном боте Prince Russia!\nПричина: {reason}", random_id=0)
+                await bot.api.messages.send(user_id=t_id, message=f"🚫 Вы были заблокированы в официальном боте Prince Russia!\n📌 Причина: {reason}\n⏳ Срок: {term}", random_id=0)
             except Exception: pass
+            
             t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
-            return await message.answer(f"🚫 Пользователь [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}]) успешно заблокирован!\nПричина: {reason}", keyboard=get_admin_keyboard(u_data["level"]))
+            return await message.answer(f"🚫 Пользователь [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}]) успешно заблокирован!\n📌 Причина: {reason}\n⏳ Срок: {term}", keyboard=get_admin_keyboard(u_data["level"]))
 
         # --- РАЗБАН ---
         elif state == "step_unban":
             del user_states[uid]
             t_id = await resolve_user(text)
             if not t_id: return await message.answer("❌ Пользователь не найден!")
-            if t_id in db["globals"]["banned_users"]:
-                db["globals"]["banned_users"].remove(t_id)
+            if str(t_id) in db["globals"]["banned_users"]:
+                del db["globals"]["banned_users"][str(t_id)]
                 save_data(DATA_DB_FILE, db)
             t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
             return await message.answer(f"🟢 Пользователь [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}]) успешно разблокирован!", keyboard=get_admin_keyboard(u_data["level"]))
@@ -617,7 +667,7 @@ async def private_input(message: Message):
             ticket_kb.add(Text("❌ Отклонить", payload={"action": "close_ticket", "uid": uid}), color=KeyboardButtonColor.NEGATIVE)
             
             for u_str, u_info in db["users"].items():
-                if u_info.get("level", 0) >= 3:
+                if u_info.get("level", 0) >= 4:
                     try:
                         await bot.api.messages.send(user_id=int(u_str), message=ticket_text, keyboard=ticket_kb.get_json(), random_id=0)
                     except Exception: pass
