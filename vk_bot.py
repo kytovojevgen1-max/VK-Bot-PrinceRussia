@@ -6,7 +6,7 @@ import re
 from threading import Thread
 from flask import Flask
 from vkbottle.bot import Bot, Message
-from vkbottle import Keyboard, KeyboardButtonColor, Text, InlineKeyboard, Callback
+from vkbottle import Keyboard, KeyboardButtonColor, Text
 
 # =====================================================================
 # 1. ВЕБ-СЕРВЕР ДЛЯ РЕНДЕРА (RENDER 24/7 FREE $0)
@@ -57,7 +57,6 @@ user_ids = load_data(USERS_FILE, default_type=set)
 chat_ids = load_data(CHATS_FILE, default_type=set)
 db = load_data(DATA_DB_FILE, default_type=dict)
 
-# Инициализация хранилищ структуры чат-менеджера
 if "users" not in db: db["users"] = {}
 if "chats" not in db: db["chats"] = {}
 if "roles" not in db: db["roles"] = {}
@@ -68,7 +67,7 @@ if "globals" not in db:
         "gbans": [], 
         "gmutes": [], 
         "filter": ["дискорд", "discord.gg", "t.me/"], 
-        "rules": "📜 Правила бесед Prince Russia Official:\n1. Уважение к участникам.\n2. Запрещен спам и реклама сторонних проектов.\n3. Запрещен мат в больших количествах.",
+        "rules": "📜 Правила бесед Prince Russia Official:\n1. Уважение к участникам.\n2. Запрещен спам и реклама сторонних проектов.\n3. Запрещен мат.",
         "silence": False,
         "silence_mode": "delete",
         "wperiod": 7,
@@ -129,17 +128,8 @@ async def get_target_user(message: Message, arg: str = None):
 
 
 # =====================================================================
-# 3. КЛАВИАТУРЫ И ИНЛАЙН-МЕНЮ
+# 3. КЛАВИАТУРЫ ДЛЯ ЛС
 # =====================================================================
-
-def get_inline_menu():
-    keyboard = InlineKeyboard()
-    keyboard.add(Callback("🚀 Сайт проекта", {"action": "site"}))
-    keyboard.add(Callback("🎁 Ежедневный Бонус", {"action": "bonus"}))
-    keyboard.row()
-    keyboard.add(Callback("📜 Правила чата", {"action": "rules"}))
-    keyboard.add(Callback("⭐ Топ Игроков", {"action": "top"}))
-    return keyboard.get_json()
 
 def get_main_keyboard(is_admin: bool):
     keyboard = Keyboard(one_time=False, inline=False)
@@ -249,39 +239,7 @@ async def private_input(message: Message):
 
 
 # =====================================================================
-# 5. ИНТЕРАКТИВНЫЕ КНОПКИ В БЕСЕДАХ (CALLBACK)
-# =====================================================================
-
-@bot.on.raw_event(type="message_event")
-async def inline_click(event):
-    if event.object.payload:
-        action = event.object.payload.get("action")
-        uid = event.object.user_id
-        if action == "bonus":
-            u = get_user_data(uid)
-            if time.time() - u["last_bonus"] < 86400:
-                msg = "⏳ Бонус уже получен сегодня!"
-            else:
-                c = random.randint(5000, 20000)
-                u["coins"] += c
-                u["last_bonus"] = time.time()
-                save_data(DATA_DB_FILE, db)
-                msg = f"🎉 Бонус: +{c:,} Coins!"
-            await bot.api.messages.send_message_event_answer(
-                event_id=event.object.event_id, user_id=uid, peer_id=event.object.peer_id, event_data=json.dumps({"type": "show_snackbar", "text": msg})
-            )
-        elif action == "rules":
-            await bot.api.messages.send(peer_id=event.object.peer_id, message=f"📜 **Правила чата:**\n{db['globals']['rules']}", random_id=0)
-        elif action == "top":
-            top = sorted(db["users"].items(), key=lambda x: x[1].get("coins", 0), reverse=True)[:5]
-            t_msg = "🏆 **ТОП БОГАЧЕЙ СЕРВЕРА:**\n" + "\n".join([f"• [id{k}|Игрок] — {v['coins']:,} Coins" for k, v in top])
-            await bot.api.messages.send(peer_id=event.object.peer_id, message=t_msg, random_id=0)
-        elif action == "site":
-            await bot.api.messages.send(peer_id=event.object.peer_id, message="🌐 Сайт проекта: https://site-prince-russia.samp.date", random_id=0)
-
-
-# =====================================================================
-# 6. ЯДРО ОБРАБОТКИ КОМАНД В БЕСЕДАХ (ПОЛНЫЙ ФУНКЦИОНАЛ)
+# 5. ЯДРО ОБРАБОТКИ КОМАНД В БЕСЕДАХ
 # =====================================================================
 
 @bot.on.chat_message()
@@ -297,41 +255,34 @@ async def chat_handler(message: Message):
     u_data = get_user_data(uid)
     user_level = u_data["level"]
 
-    # Учет статистики сообщений
     u_data["messages_count"] += 1
     save_data(DATA_DB_FILE, db)
 
-    # Проверка на блокировку команд пользователем
     if cmd in u_data.get("blocked_cmds", []):
         return await message.answer("❌ У вас заблокирован доступ к этой команде руководителем чата!")
 
-    # Обработка пользовательских кастомных команд
     if cmd in db["custom_cmds"]:
         target_usr = await get_target_user(message, args[1] if len(args) > 1 else None)
         out_msg = db["custom_cmds"][cmd]
         if target_usr: out_msg = out_msg.replace("%user%", f"[id{target_usr}|Участник]")
         return await message.answer(out_msg)
 
-    # Фильтрация спама и ссылок
     for f_word in db["globals"].get("filter", []):
         if f_word in text.lower() and user_level < 1:
             try: await bot.api.messages.delete(cmids=[message.conversation_message_id], peer_id=message.peer_id, delete_for_all=True)
             except Exception: pass
             return
 
-    # Проверка Глобального Бана
     if uid in db["globals"]["gbans"]:
         try: await bot.api.messages.remove_chat_user(chat_id=message.chat_id, member_id=uid)
         except Exception: pass
         return
 
-    # Проверка Мута
     if u_data["muted_until"] > time.time():
         try: await bot.api.messages.delete(cmids=[message.conversation_message_id], peer_id=message.peer_id, delete_for_all=True)
         except Exception: pass
         return
 
-    # Режим Тишины
     if db["globals"].get("silence") and user_level < 1:
         try:
             if db["globals"].get("silence_mode") == "kick":
@@ -343,14 +294,14 @@ async def chat_handler(message: Message):
 
 
     # -----------------------------------------------------------------
-    # ⭐️ 1. КОМАНДЫ ПОЛЬЗОВАТЕЛЯ
+    # ⭐️ КОМАНДЫ ПОЛЬЗОВАТЕЛЯ И АДМИНИСТРАЦИИ
     # -----------------------------------------------------------------
 
     if cmd in ["test", "пинг", "ping", "/ping"]:
         await message.answer("🏓 **Понг!** Бот функционирует в штатном режиме 24/7.")
 
     elif cmd in ["правила", "rules", "/rules"]:
-        await message.answer(f"📜 **ПРАВИЛА БЕСЕДЫ:**\n{db['globals']['rules']}", keyboard=get_inline_menu())
+        await message.answer(f"📜 **ПРАВИЛА БЕСЕДЫ:**\n{db['globals']['rules']}")
 
     elif cmd == "q" or cmd == "/q":
         if user_level > 0: return await message.answer("❌ Администрации запрещено покидать чат через команду /q!")
@@ -421,10 +372,7 @@ async def chat_handler(message: Message):
         target_id = await get_target_user(message, args[1] if len(args) > 1 else None) or uid
         await message.answer(f"📅 Регистрация [id{target_id}|пользователя]: `{get_user_data(target_id)['reg_date']}`")
 
-
-    # -----------------------------------------------------------------
-    # ⭐️ 2. КОМАНДЫ МОДЕРАТОРА [1-2+]
-    # -----------------------------------------------------------------
+    # --- МОДЕРАЦИЯ И УПРАВЛЕНИЕ ---
 
     elif cmd in ["кик", "kick"]:
         if user_level < 1: return await message.answer("❌ Требуется ранг: Следящий [1+]")
@@ -458,10 +406,6 @@ async def chat_handler(message: Message):
             t["warns"] = max(0, t["warns"] - 1)
             save_data(DATA_DB_FILE, db)
             await message.answer(f"✅ Предупреждение снято с [id{target}|участника].")
-
-    elif cmd in ["getwarn", "warns"]:
-        target = await get_target_user(message, args[1] if len(args) > 1 else None) or uid
-        await message.answer(f"📋 Предупреждения [id{target}|участника]: `{get_user_data(target)['warns']}/3`")
 
     elif cmd in ["мут", "mute"]:
         if user_level < 2: return await message.answer("❌ Требуется ранг: Модератор [2+]")
@@ -498,14 +442,6 @@ async def chat_handler(message: Message):
             get_user_data(target)["nick"] = None
             save_data(DATA_DB_FILE, db)
             await message.answer("❌ Никнейм успешно удален.")
-
-    elif cmd in ["getnick", "gnick"]:
-        target = await get_target_user(message, args[1] if len(args) > 1 else None) or uid
-        t = get_user_data(target)
-        if t["nick"]:
-            giver = f"[id{t['nick_giver']}|Администратором]" if t["nick_giver"] else "Системой"
-            await message.answer(f"🏷 Никнейм: **{t['nick']}** (Выдан: {giver})")
-        else: await message.answer("❌ У пользователя нет никнейма.")
 
     elif cmd in ["nicklist", "nlist"]:
         nlist = [f"• [id{k}|ID {k}] ➔ **{v['nick']}**" for k, v in db["users"].items() if v.get("nick")]
@@ -546,11 +482,6 @@ async def chat_handler(message: Message):
             save_data(DATA_DB_FILE, db)
             await message.answer(f"✅ Пользователю [id{target}|VK] назначена роль: **{r_name}**!")
 
-
-    # -----------------------------------------------------------------
-    # ⭐️ 3. КОМАНДЫ АДМИНИСТРАТОРА И СТАРШИХ [3-5+]
-    # -----------------------------------------------------------------
-
     elif cmd in ["addmoder"]:
         if user_level < 3: return
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
@@ -558,13 +489,6 @@ async def chat_handler(message: Message):
             get_user_data(target)["level"] = 2
             save_data(DATA_DB_FILE, db)
             await message.answer(f"🎉 Пользователь [id{target}|VK] назначен Модератором [2]!")
-
-    elif cmd in ["wperiod", "времяварна"]:
-        if user_level < 3: return
-        if len(args) > 1 and args[1].isdigit():
-            db["globals"]["wperiod"] = int(args[1])
-            save_data(DATA_DB_FILE, db)
-            await message.answer(f"⏱ Время сгорания предупреждений установлено на {args[1]} дней.")
 
     elif cmd in ["removerole", "rr", "снятьправа"]:
         if user_level < 3: return
@@ -599,30 +523,6 @@ async def chat_handler(message: Message):
         st = "ВКЛЮЧЕН 🔇" if db["globals"]["silence"] else "ВЫКЛЮЧЕН 🔊"
         await message.answer(f"⚙️ Режим тишины в чате: **{st}**!")
 
-    elif cmd in ["vig"]:
-        if user_level < 3: return
-        target = await get_target_user(message, args[1] if len(args) > 1 else None)
-        if target:
-            t = get_user_data(target)
-            t["vig"] += 1
-            save_data(DATA_DB_FILE, db)
-            if t["vig"] >= 3:
-                t["vig"] = 0
-                t["level"] = 0
-                t["custom_role"] = None
-                await message.answer(f"⛔ [id{target}|Игрок] получил 3/3 выговоров и был снят с должности!")
-            else:
-                await message.answer(f"⚠️ [id{target}|Администратору] выдан выговор ({t['vig']}/3).")
-
-    elif cmd in ["unvig"]:
-        if user_level < 3: return
-        target = await get_target_user(message, args[1] if len(args) > 1 else None)
-        if target:
-            t = get_user_data(target)
-            t["vig"] = max(0, t["vig"] - 1)
-            save_data(DATA_DB_FILE, db)
-            await message.answer(f"✅ Выговор снят с [id{target}|администратора].")
-
     elif cmd in ["gkick", "gban"]:
         if user_level < 4: return
         target = await get_target_user(message, args[1] if len(args) > 1 else None)
@@ -632,14 +532,6 @@ async def chat_handler(message: Message):
             try: await bot.api.messages.remove_chat_user(chat_id=message.chat_id, member_id=target)
             except Exception: pass
             await message.answer(f"⛔ Пользователь [id{target}|VK] занесен в ГЛОБАЛЬНЫЙ ЧЕРНЫЙ СПИСОК!")
-
-    elif cmd in ["gunban"]:
-        if user_level < 4: return
-        target = await get_target_user(message, args[1] if len(args) > 1 else None)
-        if target and target in db["globals"]["gbans"]:
-            db["globals"]["gbans"].remove(target)
-            save_data(DATA_DB_FILE, db)
-            await message.answer(f"🔊 Глобальный бан с [id{target}|пользователя] снят.")
 
     elif cmd in ["pin"]:
         if user_level < 5: return
@@ -677,18 +569,6 @@ async def chat_handler(message: Message):
             db["globals"]["filter"].append(f_word)
             save_data(DATA_DB_FILE, db)
             await message.answer(f"✅ Ключевое слово/ссылка `{f_word}` добавлены в фильтр!")
-
-    elif cmd in ["gzov"]:
-        if user_level < 5: return
-        txt = " ".join(args[1:]) if len(args) > 1 else "Собрание"
-        for peer in list(chat_ids):
-            try: await bot.api.messages.send(peer_id=peer, message=f"🔔 @all **ГЛОБАЛЬНЫЙ ВЫЗОВ ПУЛА:** {txt}", random_id=0)
-            except Exception: pass
-
-
-    # -----------------------------------------------------------------
-    # ⭐️ 4. РУКОВОДСТВО И ВЛАДЕЛЬЦЫ [6-7+]
-    # -----------------------------------------------------------------
 
     elif cmd in ["новыеправила", "setrules"]:
         if user_level < 6: return
@@ -734,13 +614,13 @@ async def chat_handler(message: Message):
         if message.peer_id not in chat_ids:
             chat_ids.add(message.peer_id)
             save_data(CHATS_FILE, chat_ids)
-        await message.answer("✅ Чат успешно добавлен в глобальный пул конференций!")
+        await message.answer("✅ Чат успешно добавлен в пул конференций!")
 
     elif cmd in ["rpull"]:
         if message.peer_id in chat_ids:
             chat_ids.remove(message.peer_id)
             save_data(CHATS_FILE, chat_ids)
-        await message.answer("❌ Чат удален из общего пула.")
+        await message.answer("❌ Чат удален из пула.")
 
     elif cmd == "создать":
         if len(args) >= 4 and args[1] == "команду":
@@ -764,7 +644,7 @@ async def chat_handler(message: Message):
             "⭐️ **Владелец [7+]:** `addlead`, `editowner`, `settings`, `pull`, `rpull`, `создать команду`\n"
             "───────────────────────────────"
         )
-        await message.answer(help_text, keyboard=get_inline_menu())
+        await message.answer(help_text)
 
 
 if __name__ == "__main__":
