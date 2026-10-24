@@ -14,7 +14,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Prince Russia Ultimate Core v5.2: ACTIVE 24/7"
+    return "Prince Russia Ultimate Core v10.1: ACTIVE 24/7"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -29,7 +29,7 @@ Thread(target=run_flask, daemon=True).start()
 TOKEN = "vk1.a.msFlcd5y5n3ouSMUzsU5UYT2iSsz4oZpfqugFyFvBoDPuIJCuaTveRYFLZUWk7hLbnlLkLRivG5oRTMXhZU0SzOc1emMasJWDUD6NmWyEYjhc9uCa8dqbbTKb_EGadWM10CBTRPdvW-aeYAHS_sPp83X79GHyiDThjRh1qxRA_PdmEnk2mQGTYzf_gn8gby_7dwqLtrurXbwi2qw7w1kJw"
 bot = Bot(token=TOKEN)
 
-MAIN_OWNER_ID = 897082738  # Твой VK ID (Главный Владелец)
+MAIN_OWNER_ID = 897082738  # Твой VK ID (Разработчик игры / 8 lvl)
 
 USERS_FILE = "users.json"
 CHATS_FILE = "chats.json"
@@ -72,57 +72,50 @@ RANKS = {
     4: "Спец. Администратор",
     5: "Главный Администратор",
     6: "Руководитель",
-    7: "Главный Владелец"
+    7: "Заместитель Разработчика",
+    8: "Разработчик игры"
 }
 
 def get_user_data(uid):
     uid_str = str(uid)
     if uid_str not in db["users"]:
-        is_owner = 7 if int(uid) == MAIN_OWNER_ID else 0
+        is_dev = 8 if int(uid) == MAIN_OWNER_ID else 0
         db["users"][uid_str] = {
             "money": 0,
             "bc": 0,
-            "level": is_owner,
-            "prefix": "[Основатель]" if is_owner else "[Игрок]",
+            "level": is_dev,
+            "prefix": "[Разработчик]" if is_dev else "[Игрок]",
             "username": f"id{uid}",
             "messages_count": 0,
             "activated_promos": [],
             "reg_date": time.strftime("%Y-%m-%d %H:%M:%S")
         }
     else:
-        if int(uid) == MAIN_OWNER_ID and db["users"][uid_str]["level"] < 7:
-            db["users"][uid_str]["level"] = 7
-            db["users"][uid_str]["prefix"] = "[Основатель]"
+        if int(uid) == MAIN_OWNER_ID and db["users"][uid_str]["level"] < 8:
+            db["users"][uid_str]["level"] = 8
+            db["users"][uid_str]["prefix"] = "[Разработчик]"
     return db["users"][uid_str]
 
 async def resolve_user(identifier: str):
-    """Идеальный поиск пользователя: по ID, через VK API по screen_name (@username) или по базе"""
     clean_id = identifier.strip().replace("https://vk.com/", "").replace("vk.com/", "").replace("@", "").replace("id", "")
-    
-    # Если это чистый ID
     if clean_id.isdigit():
         uid = int(clean_id)
-        get_user_data(uid)  # Автоматически создаем в базе если нет
+        get_user_data(uid)
         return uid
-        
-    # Если передан юзернейм (например evgenn09)
-    search_str = identifier.strip().lower().replace("@", "")
     
-    # 1. Ищем сначала в локальной базе
+    search_str = identifier.strip().lower().replace("@", "")
     for u_str, u_info in db["users"].items():
         if u_info.get("username", "").lower().replace("@", "") == search_str:
             return int(u_str)
             
-    # 2. Если нет в базе, запрашиваем через официальное VK API
     try:
         user_info = await bot.api.users.get(user_ids=[search_str])
         if user_info:
             uid = user_info[0].id
-            get_user_data(uid)  # Создаем в базе
+            get_user_data(uid)
             return uid
     except Exception:
         pass
-        
     return None
 
 
@@ -147,11 +140,12 @@ def get_main_keyboard(is_admin: bool):
         keyboard.add(Text("👑 Админ-Панель"), color=KeyboardButtonColor.NEGATIVE)
     return keyboard.get_json()
 
-def get_admin_keyboard():
+def get_admin_keyboard(user_level: int):
     keyboard = Keyboard(one_time=False, inline=False)
-    keyboard.add(Text("📢 Рассылка в ЛС"), color=KeyboardButtonColor.POSITIVE)
-    keyboard.add(Text("💬 Рассылка по Беседам"), color=KeyboardButtonColor.POSITIVE)
-    keyboard.row()
+    if user_level >= 6:
+        keyboard.add(Text("📢 Рассылка в ЛС"), color=KeyboardButtonColor.POSITIVE)
+        keyboard.add(Text("💬 Рассылка по Беседам"), color=KeyboardButtonColor.POSITIVE)
+        keyboard.row()
     keyboard.add(Text("📋 Список Тикетов"), color=KeyboardButtonColor.PRIMARY)
     keyboard.add(Text("👥 Список Админов"), color=KeyboardButtonColor.PRIMARY)
     keyboard.row()
@@ -195,7 +189,7 @@ async def start_handler(message: Message):
     is_admin = u_data["level"] >= 3 or uid == MAIN_OWNER_ID
     
     welcome_text = (
-        "👑 **PRINCE RUSSIA — MOBILE PROJECT** 👑\n"
+        "👑 **PRINCE RUSSIA — MOBILE PROJECT v10.1** 👑\n"
         "*(Полная копия Black Russia)*\n"
         "───────────────────────────────\n"
         f"🏷 Префикс: **{u_data.get('prefix', '[Игрок]')}**\n"
@@ -209,8 +203,9 @@ async def start_handler(message: Message):
 
 @bot.on.private_message(text="👑 Админ-Панель")
 async def admin_panel(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
-    await message.answer("🛠 **АДМИН-ПАНЕЛЬ PRINCE RUSSIA**\nВыберите действие с помощью кнопок ниже:", keyboard=get_admin_keyboard())
+    u_data = get_user_data(message.from_id)
+    if u_data["level"] < 3: return
+    await message.answer("🛠 **АДМИН-ПАНЕЛЬ PRINCE RUSSIA**\nВыберите действие с помощью кнопок ниже:", keyboard=get_admin_keyboard(u_data["level"]))
 
 @bot.on.private_message(text=["📋 Профиль", "/profile"])
 async def profile_handler(message: Message):
@@ -219,7 +214,7 @@ async def profile_handler(message: Message):
     await message.answer(
         f"👤 **ВАШ ИГРОВОЙ ПРОФИЛЬ:**\n"
         f"───────────────\n"
-        f"🆔 ID: `{uid}` | [id{uid}|@ {u_data.get('username', f'id{uid}')}]\n"
+        f"🆔 ID: [id{uid}|`{uid}`] | [id{uid}|@ {u_data.get('username', f'id{uid}')}]\n"
         f"🏷 Префикс: **{u_data.get('prefix', '[Игрок]')}**\n"
         f"👑 Ранг: **{RANKS.get(u_data['level'], 'Игрок')}**\n"
         f"💵 На руках: **{u_data['money']:,} руб.**\n"
@@ -275,7 +270,7 @@ async def dice_handler(message: Message):
     elif player_roll == bot_roll:
         u_data["money"] += cost
         save_data(DATA_DB_FILE, db)
-        await message.answer(f"🎲 **КОСТИ УДАЧИ:**\nНичья! `{player_roll} : {bot_roll}`. Ставка возвращена на баланс.")
+        await message.answer(f"🎲 **КОСТИ УДАЧИ:**\nНичья! `{player_roll} : {bot_roll}`. Ставка возвращена.")
     else:
         save_data(DATA_DB_FILE, db)
         await message.answer(f"🎲 **КОСТИ УДАЧИ:**\nВы выбросили: `{player_roll}` | Бот выбросил: `{bot_roll}`\n😢 К сожалению, вы проиграли ставку `{cost:,} руб.`.")
@@ -287,21 +282,23 @@ async def support_prompt(message: Message):
 
 @bot.on.private_message(text="📋 Список Тикетов")
 async def list_tickets(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
+    u_data = get_user_data(message.from_id)
+    if u_data["level"] < 3: return
     if not db["tickets"]:
         return await message.answer("📂 Активных тикетов в поддержке нет.")
     
     t_msg = "📂 **СПИСОК АКТИВНЫХ ТИКЕТОВ:**\n───────────────────────────────\n"
     for t_id, t_data in db["tickets"].items():
         u_info = db["users"].get(str(t_id), {})
-        u_name = f"@{u_info.get('username', f'id{t_id}')}" if u_info.get('username') else f"ID: {t_id}"
-        t_msg += f"• Игрок: [id{t_id}|{u_name}] (ID: `{t_id}`)\n  ❓ Вопрос: *{t_data['question']}*\n───────────────────────────────\n"
+        u_handle = f"@{u_info.get('username', f'id{t_id}')}" if u_info.get('username') else f"ID: {t_id}"
+        t_msg += f"• Игрок: [id{t_id}|{u_handle}] ([id{t_id}|ID {t_id}])\n  ❓ Вопрос: *{t_data['question']}*\n───────────────────────────────\n"
     
-    await message.answer(t_msg, keyboard=get_admin_keyboard())
+    await message.answer(t_msg, keyboard=get_admin_keyboard(u_data["level"]))
 
 @bot.on.private_message(text="👥 Список Админов")
 async def list_admins(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
+    u_data = get_user_data(message.from_id)
+    if u_data["level"] < 3: return
     
     admins = []
     for u_str, u_info in db["users"].items():
@@ -320,26 +317,29 @@ async def list_admins(message: Message):
         pref = a_info.get("prefix", "[Админ]")
         u_handle = f"@{a_info.get('username', f'id{a_id}')}" if a_info.get('username') else f"ID: {a_id}"
         
-        adm_msg += f"• [id{a_id}|{u_handle}] ➔ {pref} **{rank_name}** `[{lvl} lvl]`\n"
+        adm_msg += f"• [id{a_id}|{u_handle}] ([id{a_id}|ID {a_id}]) ➔ {pref} **{rank_name}** `[{lvl} lvl]`\n"
         
     adm_msg += "───────────────────────────────"
-    await message.answer(adm_msg, keyboard=get_admin_keyboard())
+    await message.answer(adm_msg, keyboard=get_admin_keyboard(u_data["level"]))
 
 @bot.on.private_message(text="📊 Статистика Бота")
 async def stats_handler(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
+    u_data = get_user_data(message.from_id)
+    if u_data["level"] < 3: return
     await message.answer(f"📊 **СТАТИСТИКА ПРОЕКТА:**\n👤 Игроков: `{len(user_ids)}`\n💬 Чатов рассылки: `{len(chat_ids)}`\n📂 Активных тикетов: `{len(db['tickets'])}`")
 
-# КНОПКИ РАССЫЛОК
+# КНОПКИ РАССЫЛОК (ТОЛЬКО ДЛЯ 6+ ЛВЛ)
 @bot.on.private_message(text="📢 Рассылка в ЛС")
 async def broadcast_pm_btn(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
+    u_data = get_user_data(message.from_id)
+    if u_data["level"] < 6: return await message.answer("❌ Доступно только с 6 уровня (Руководитель и выше)!")
     user_states[message.from_id] = "broadcast_pm_text"
     await message.answer("📢 **РАССЫЛКА В ЛС ИГРОКАМ**\n\nВведите текст сообщения для рассылки всем пользователям:")
 
 @bot.on.private_message(text="💬 Рассылка по Беседам")
 async def broadcast_chats_btn(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
+    u_data = get_user_data(message.from_id)
+    if u_data["level"] < 6: return await message.answer("❌ Доступно только с 6 уровня (Руководитель и выше)!")
     user_states[message.from_id] = "broadcast_chats_text"
     await message.answer("💬 **РАССЫЛКА ПО БЕСЕДАМ**\n\nВведите текст сообщения для рассылки по всем беседам, где добавлен бот:")
 
@@ -348,43 +348,43 @@ async def broadcast_chats_btn(message: Message):
 async def btn_give_money(message: Message):
     if get_user_data(message.from_id)["level"] < 3: return
     user_states[message.from_id] = "step_money_user"
-    await message.answer("💰 **ВЫДАЧА РУБЛЕЙ**\n\nШаг 1 из 2: Введите `@username` или `ID` игрока:")
+    await message.answer("💰 **ВЫДАЧА РУБЛЕЙ**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` игрока:")
 
 @bot.on.private_message(text="💎 Выдать BC")
 async def btn_give_bc(message: Message):
     if get_user_data(message.from_id)["level"] < 3: return
     user_states[message.from_id] = "step_bc_user"
-    await message.answer("💎 **ВЫДАЧА BC ДОНАТА**\n\nШаг 1 из 2: Введите `@username` или `ID` игрока:")
+    await message.answer("💎 **ВЫДАЧА BC ДОНАТА**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` игрока:")
 
 @bot.on.private_message(text="👑 Выдать Админку")
 async def btn_give_admin(message: Message):
     if get_user_data(message.from_id)["level"] < 5: return await message.answer("❌ Доступно с 5 уровня!")
     user_states[message.from_id] = "step_admin_user"
-    await message.answer("👑 **ВЫДАЧА АДМИНИСТРИРОВАНИЯ**\n\nШаг 1 из 2: Введите `@username` или `ID` игрока:")
+    await message.answer("👑 **ВЫДАЧА АДМИНИСТРИРОВАНИЯ**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` игрока:")
 
 @bot.on.private_message(text="🏷 Изменить Префикс")
 async def btn_set_prefix(message: Message):
     if get_user_data(message.from_id)["level"] < 5: return await message.answer("❌ Доступно с 5 уровня!")
     user_states[message.from_id] = "step_prefix_user"
-    await message.answer("🏷 **СМЕНА ПРЕФИКСА**\n\nШаг 1 из 2: Введите `@username` или `ID` игрока:")
+    await message.answer("🏷 **СМЕНА ПРЕФИКСА**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` игрока:")
 
 @bot.on.private_message(text="🚫 Забанить")
 async def btn_ban(message: Message):
     if get_user_data(message.from_id)["level"] < 3: return
     user_states[message.from_id] = "step_ban_user"
-    await message.answer("🚫 **БЛОКИРОВКА ИГРОКА**\n\nШаг 1 из 2: Введите `@username` или `ID` нарушителя:")
+    await message.answer("🚫 **БЛОКИРОВКА ИГРОКА**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` нарушителя:")
 
 @bot.on.private_message(text="🟢 Разбанить")
 async def btn_unban(message: Message):
     if get_user_data(message.from_id)["level"] < 3: return
     user_states[message.from_id] = "step_unban"
-    await message.answer("🟢 **РАЗБЛОКИРОВКА ИГРОКА**\n\nВведите `@username` или `ID` игрока для снятия бана:")
+    await message.answer("🟢 **РАЗБЛОКИРОВКА ИГРОКА**\n\nВведите `@username`, ссылку или `ID` игрока для снятия бана:")
 
 @bot.on.private_message(text="💬 Ответить на тикет")
 async def btn_ans_ticket(message: Message):
     if get_user_data(message.from_id)["level"] < 3: return
     user_states[message.from_id] = "step_ans_user"
-    await message.answer("💬 **ОТВЕТ НА ТИКЕТ ПОДДЕРЖКИ**\n\nШаг 1 из 2: Введите `@username` или `ID` игрока, которому хотите ответить:")
+    await message.answer("💬 **ОТВЕТ НА ТИКЕТ ПОДДЕРЖКИ**\n\nШаг 1 из 2: Введите `@username`, ссылку или `ID` игрока, которому хотите ответить:")
 
 @bot.on.private_message(text="🚀 Скачать игру (Сайт)")
 async def download_game(message: Message):
@@ -408,7 +408,9 @@ async def private_input(message: Message):
     user_ids.add(uid)
     save_data(USERS_FILE, user_ids)
     
-    if message.payload and get_user_data(uid)["level"] >= 3:
+    u_data = get_user_data(uid)
+    
+    if message.payload and u_data["level"] >= 3:
         try:
             payload_data = json.loads(message.payload) if isinstance(message.payload, str) else message.payload
             action = payload_data.get("action")
@@ -417,7 +419,8 @@ async def private_input(message: Message):
             if action == "ans_ticket":
                 temp_admin_data[uid] = {"target_uid": target_uid}
                 user_states[uid] = "step_ans_text_only"
-                return await message.answer(f"✍️ Введите текст ответа для игрока с ID `{target_uid}`:")
+                u_handle = f"@{db['users'].get(str(target_uid), {}).get('username', f'id{target_uid}')}"
+                return await message.answer(f"✍️ Введите текст ответа для игрока [id{target_uid}|{u_handle}] (ID: `{target_uid}`):")
             elif action == "close_ticket":
                 if str(target_uid) in db["tickets"]:
                     del db["tickets"][str(target_uid)]
@@ -425,13 +428,12 @@ async def private_input(message: Message):
                     try:
                         await bot.api.messages.send(user_id=int(target_uid), message="❌ Ваш тикет в техподдержку был закрыт администратором без ответа.", random_id=0)
                     except Exception: pass
-                return await message.answer(f"✅ Тикет игрока `{target_uid}` успешно закрыт.")
+                return await message.answer(f"✅ Тикет игрока [id{target_uid}|ID {target_uid}] успешно закрыт.")
         except Exception: pass
 
     text = message.text
     if not text: return
 
-    u_data = get_user_data(uid)
     u_data["messages_count"] += 1
     save_data(DATA_DB_FILE, db)
 
@@ -443,24 +445,26 @@ async def private_input(message: Message):
         # --- РАССЫЛКА В ЛС ---
         if state == "broadcast_pm_text":
             del user_states[uid]
+            if u_data["level"] < 6: return await message.answer("❌ Недостаточно прав!")
             count = 0
             for u in list(user_ids):
                 try:
                     await bot.api.messages.send(user_id=u, message=text, random_id=0)
                     count += 1
                 except Exception: pass
-            return await message.answer(f"✅ Рассылка в ЛС завершена! Успешно доставлено: `{count}` игрокам.", keyboard=get_admin_keyboard())
+            return await message.answer(f"✅ Рассылка в ЛС завершена! Успешно доставлено: `{count}` игрокам.", keyboard=get_admin_keyboard(u_data["level"]))
 
         # --- РАССЫЛКА ПО БЕСЕДАМ ---
         elif state == "broadcast_chats_text":
             del user_states[uid]
+            if u_data["level"] < 6: return await message.answer("❌ Недостаточно прав!")
             count = 0
             for c in list(chat_ids):
                 try:
                     await bot.api.messages.send(peer_id=c, message=text, random_id=0)
                     count += 1
                 except Exception: pass
-            return await message.answer(f"✅ Рассылка по беседам завершена! Отправлено в `{count}` чатов.", keyboard=get_admin_keyboard())
+            return await message.answer(f"✅ Рассылка по беседам завершена! Отправлено в `{count}` чатов.", keyboard=get_admin_keyboard(u_data["level"]))
 
         # --- ПОШАГОВЫЙ ВВОД ДЛЯ ВЫДАЧИ РУБЛЕЙ ---
         elif state == "step_money_user":
@@ -469,7 +473,8 @@ async def private_input(message: Message):
             if not t_id: return await message.answer("❌ Пользователь не найден!")
             temp_admin_data[uid] = {"target_uid": t_id}
             user_states[uid] = "step_money_amount"
-            return await message.answer("Шаг 2 из 2: Введите сумму рублей для выдачи (например: `50000000`):")
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"Выбран игрок: [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}])\n\nШаг 2 из 2: Введите сумму рублей для выдачи (например: `50000000`):")
             
         elif state == "step_money_amount":
             del user_states[uid]
@@ -478,7 +483,8 @@ async def private_input(message: Message):
             t_id = temp_admin_data.get(uid, {}).get("target_uid")
             get_user_data(t_id)["money"] += amt
             save_data(DATA_DB_FILE, db)
-            return await message.answer(f"✅ Успешно выдано `+{amt:,} руб.` игроку [id{t_id}|ID {t_id}].", keyboard=get_admin_keyboard())
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"✅ Успешно выдано `+{amt:,} руб.` игроку [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}]).", keyboard=get_admin_keyboard(u_data["level"]))
 
         # --- ПОШАГОВЫЙ ВВОД ДЛЯ ВЫДАЧИ BC ---
         elif state == "step_bc_user":
@@ -487,7 +493,8 @@ async def private_input(message: Message):
             if not t_id: return await message.answer("❌ Пользователь не найден!")
             temp_admin_data[uid] = {"target_uid": t_id}
             user_states[uid] = "step_bc_amount"
-            return await message.answer("Шаг 2 из 2: Введите сумму BC доната (например: `1000`):")
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"Выбран игрок: [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}])\n\nШаг 2 из 2: Введите сумму BC доната (например: `1000`):")
             
         elif state == "step_bc_amount":
             del user_states[uid]
@@ -496,7 +503,8 @@ async def private_input(message: Message):
             t_id = temp_admin_data.get(uid, {}).get("target_uid")
             get_user_data(t_id)["bc"] += amt
             save_data(DATA_DB_FILE, db)
-            return await message.answer(f"✅ Успешно выдано `+{amt:,} BC` игроку [id{t_id}|ID {t_id}].", keyboard=get_admin_keyboard())
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"✅ Успешно выдано `+{amt:,} BC` игроку [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}]).", keyboard=get_admin_keyboard(u_data["level"]))
 
         # --- ПОШАГОВЫЙ ВВОД ДЛЯ ВЫДАЧИ АДМИНКИ ---
         elif state == "step_admin_user":
@@ -505,17 +513,19 @@ async def private_input(message: Message):
             if not t_id: return await message.answer("❌ Пользователь не найден!")
             temp_admin_data[uid] = {"target_uid": t_id}
             user_states[uid] = "step_admin_lvl"
-            return await message.answer("Шаг 2 из 2: Введите уровень администратора от 0 до 7:")
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"Выбран игрок: [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}])\n\nШаг 2 из 2: Введите уровень администратора от 0 до 8:")
             
         elif state == "step_admin_lvl":
             del user_states[uid]
             if not text.isdigit(): return await message.answer("❌ Уровень должен быть числом!")
             lvl = int(text)
-            if lvl < 0 or lvl > 7: return await message.answer("❌ Уровень от 0 до 7!")
+            if lvl < 0 or lvl > 8: return await message.answer("❌ Уровень от 0 до 8!")
             t_id = temp_admin_data.get(uid, {}).get("target_uid")
             get_user_data(t_id)["level"] = lvl
             save_data(DATA_DB_FILE, db)
-            return await message.answer(f"✅ Установлен ранг **{RANKS.get(lvl, 'Игрок')} [{lvl} lvl]** для [id{t_id}|Игрока].", keyboard=get_admin_keyboard())
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"✅ Установлен ранг **{RANKS.get(lvl, 'Игрок')} [{lvl} lvl]** для игрока [id{t_id}|{t_handle}].", keyboard=get_admin_keyboard(u_data["level"]))
 
         # --- ПОШАГОВЫЙ ВВОД ДЛЯ СМЕНЫ ПРЕФИКСА ---
         elif state == "step_prefix_user":
@@ -524,7 +534,8 @@ async def private_input(message: Message):
             if not t_id: return await message.answer("❌ Пользователь не найден!")
             temp_admin_data[uid] = {"target_uid": t_id}
             user_states[uid] = "step_prefix_text"
-            return await message.answer("Шаг 2 из 2: Введите новый префикс (например: `[Куратор]`):")
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"Выбран игрок: [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}])\n\nШаг 2 из 2: Введите новый префикс (например: `[Куратор]`):")
             
         elif state == "step_prefix_text":
             del user_states[uid]
@@ -532,7 +543,8 @@ async def private_input(message: Message):
             t_id = temp_admin_data.get(uid, {}).get("target_uid")
             get_user_data(t_id)["prefix"] = pref
             save_data(DATA_DB_FILE, db)
-            return await message.answer(f"✅ Успешно установлен префикс **{pref}** для [id{t_id}|Игрока].", keyboard=get_admin_keyboard())
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"✅ Успешно установлен префикс **{pref}** для игрока [id{t_id}|{t_handle}].", keyboard=get_admin_keyboard(u_data["level"]))
 
         # --- ПОШАГОВЫЙ ВВОД ДЛЯ БАНА С ПРИЧИНОЙ ---
         elif state == "step_ban_user":
@@ -541,7 +553,8 @@ async def private_input(message: Message):
             if not t_id: return await message.answer("❌ Пользователь не найден!")
             temp_admin_data[uid] = {"target_uid": t_id}
             user_states[uid] = "step_ban_reason"
-            return await message.answer("Шаг 2 из 2: Введите причину блокировки (например: `Оскорбление проекта`):")
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"Выбран нарушитель: [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}])\n\nШаг 2 из 2: Введите причину блокировки:")
             
         elif state == "step_ban_reason":
             del user_states[uid]
@@ -553,7 +566,8 @@ async def private_input(message: Message):
             try:
                 await bot.api.messages.send(user_id=t_id, message=f"🚫 Вы были заблокированы в официальном боте Prince Russia!\nПричина: {reason}", random_id=0)
             except Exception: pass
-            return await message.answer(f"🚫 Пользователь [id{t_id}|ID {t_id}] успешно заблокирован!\nПричина: {reason}", keyboard=get_admin_keyboard())
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"🚫 Пользователь [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}]) успешно заблокирован!\nПричина: {reason}", keyboard=get_admin_keyboard(u_data["level"]))
 
         # --- РАЗБАН ---
         elif state == "step_unban":
@@ -563,7 +577,8 @@ async def private_input(message: Message):
             if t_id in db["globals"]["banned_users"]:
                 db["globals"]["banned_users"].remove(t_id)
                 save_data(DATA_DB_FILE, db)
-            return await message.answer(f"🟢 Пользователь [id{t_id}|ID {t_id}] успешно разблокирован!", keyboard=get_admin_keyboard())
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"🟢 Пользователь [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}]) успешно разблокирован!", keyboard=get_admin_keyboard(u_data["level"]))
 
         # --- ОТВЕТ НА ТИКЕТ ---
         elif state == "step_ans_user":
@@ -572,7 +587,8 @@ async def private_input(message: Message):
             if not t_id: return await message.answer("❌ Пользователь не найден!")
             temp_admin_data[uid] = {"target_uid": t_id}
             user_states[uid] = "step_ans_text"
-            return await message.answer("Шаг 2 из 2: Введите текст ответа игроку:")
+            t_handle = f"@{db['users'].get(str(t_id), {}).get('username', f'id{t_id}')}"
+            return await message.answer(f"Выбран игрок: [id{t_id}|{t_handle}] ([id{t_id}|ID {t_id}])\n\nШаг 2 из 2: Введите текст ответа игроку:")
 
         elif state == "step_ans_text" or state == "step_ans_text_only":
             t_id = temp_admin_data.get(uid, {}).get("target_uid")
@@ -585,7 +601,7 @@ async def private_input(message: Message):
                 save_data(DATA_DB_FILE, db)
             try:
                 await bot.api.messages.send(user_id=t_id, message=f"📩 **ОТВЕТ ОТ ТЕХПОДДЕРЖКИ:**\n👤 Администратор: **{admin_name}**\n💬 Ответ: {text}", random_id=0)
-                return await message.answer("✅ Ответ успешно доставлен игроку, тикет закрыт!", keyboard=get_admin_keyboard())
+                return await message.answer("✅ Ответ успешно доставлен игроку, тикет закрыт!", keyboard=get_admin_keyboard(u_data["level"]))
             except Exception as e: return await message.answer(f"❌ Ошибка отправки: {e}")
 
         elif state == "create_ticket":
@@ -593,7 +609,7 @@ async def private_input(message: Message):
             save_data(DATA_DB_FILE, db)
             
             u_name = f"@{u_data.get('username', f'id{uid}')}"
-            ticket_text = f"🚨 **НОВЫЙ ТИКЕТ**\n👤 От: [id{uid}|Игрок] ({u_name})\n💬 Вопрос: {text}"
+            ticket_text = f"🚨 **НОВЫЙ ТИКЕТ**\n👤 От: [id{uid}|Игрок] ([id{uid}|{u_name}])\n💬 Вопрос: {text}"
             
             from vkbottle import Keyboard
             ticket_kb = Keyboard(one_time=False, inline=True)
