@@ -58,7 +58,7 @@ db = load_data(DATA_DB_FILE, default_type=dict)
 
 if "users" not in db: db["users"] = {}
 if "promos" not in db: db["promos"] = {"PRINCE": 10000000, "RUSSIA": 5000000, "START": 25000000}
-if "globals" not in db: db["globals"] = {"banned_users": [], "support_chat_id": None}
+if "globals" not in db: db["globals"] = {"banned_users": []}
 
 user_states = {}
 
@@ -81,7 +81,7 @@ def get_user_data(uid):
             "money": 25000000,     # 25 миллионов бонус
             "bc": 1000,            # 1000 BC доната бонус
             "level": is_owner,
-            "prefix": "[Игрок]",
+            "prefix": "[Основатель]" if is_owner else "[Игрок]",
             "messages_count": 0,
             "activated_promos": [],
             "reg_date": time.strftime("%Y-%m-%d %H:%M:%S")
@@ -105,7 +105,9 @@ def get_main_keyboard(is_admin: bool):
     keyboard.add(Text("📋 Профиль"), color=KeyboardButtonColor.PRIMARY)
     keyboard.add(Text("🌐 Ссылки и Ресурсы"), color=KeyboardButtonColor.PRIMARY)
     keyboard.row()
+    keyboard.add(Text("📦 Контейнеры"), color=KeyboardButtonColor.SECONDARY)
     keyboard.add(Text("🎟 Промокод"), color=KeyboardButtonColor.SECONDARY)
+    keyboard.row()
     keyboard.add(Text("🆘 Техподдержка"), color=KeyboardButtonColor.NEGATIVE)
     if is_admin:
         keyboard.row()
@@ -150,7 +152,7 @@ async def start_handler(message: Message):
         "👑 **PRINCE RUSSIA — MOBILE PROJECT** 👑\n"
         "*(Полная копия Black Russia)*\n"
         "───────────────────────────────\n"
-        f"🏷 Префикс: **{u_data.get('prefix', '[Игрок准')}**\n"
+        f"🏷 Префикс: **{u_data.get('prefix', '[Игрок]')}**\n"
         f"👤 Статус: **{RANKS.get(u_data['level'], 'Игрок')}**\n"
         f"💵 На руках: **{u_data['money']:,} руб.**\n"
         f"💎 BC Донат: **{u_data['bc']:,} BC**\n"
@@ -185,13 +187,35 @@ async def links_handler(message: Message):
     links_text = (
         "🌐 **ОФИЦИАЛЬНЫЕ РЕСУРСЫ PRINCE RUSSIA:**\n"
         "───────────────────────────────\n"
-        f"🌐 Сайт проекта: https://site-prince-russia.samp.date/\n"
-        f"📋 Форум: https://forum-prince-russia.samp.date/\n"
-        f"📢 ТГК проекта: https://t.me/prince_russiaa\n"
-        f"💬 ВКонтакте: https://vk.ru/princerussiaa\n"
+        "🌐 Сайт проекта: https://site-prince-russia.samp.date/\n"
+        "📋 Форум: https://forum-prince-russia.samp.date/\n"
+        "📢 ТГК проекта: https://t.me/prince_russiaa\n"
+        "💬 ВКонтакте: https://vk.ru/princerussiaa\n"
+        "🤖 Telegram-бот: https://t.me/PrinceRussiabot\n"
         "───────────────────────────────"
     )
     await message.answer(links_text)
+
+@bot.on.private_message(text=["📦 Контейнеры", "/case"])
+async def case_handler(message: Message):
+    uid = message.from_id
+    u_data = get_user_data(uid)
+    cost = 250  # 250 BC за контейнер
+    
+    if u_data["bc"] < cost:
+        return await message.answer(f"❌ Недостаточно BC доната! Открытие контейнера стоит **{cost} BC**.")
+    
+    u_data["bc"] -= cost
+    win_money = random.randint(10000000, 100000000)
+    u_data["money"] += win_money
+    save_data(DATA_DB_FILE, db)
+    
+    await message.answer(
+        f"📦 **ВЫ ОТКРЫЛИ КОНТЕЙНЕР ДУБАЙ!**\n"
+        f"───────────────────────────────\n"
+        f"🎉 Ваш выигрыш: **+{win_money:,} рублей**!\n"
+        f"💎 Остаток BC: `{u_data['bc']:,} BC`"
+    )
 
 @bot.on.private_message(text=["🎁 Бонус", "/bonus"])
 async def bonus_handler(message: Message):
@@ -278,14 +302,40 @@ async def private_input(message: Message):
     save_data(DATA_DB_FILE, db)
 
     args = text.split()
+    cmd = args[0].lower() if args else ""
 
+    # Команда ответа на тикет администратором: /ans [ID] [текст] или /ответ [ID] [текст]
+    if cmd in ["/ans", "/ответ", "ответ"] and len(args) >= 3 and args[1].isdigit():
+        if u_data["level"] < 3: return
+        target_user_id = int(args[1])
+        reply_text = " ".join(args[2:])
+        admin_prefix = u_data.get("prefix", "[Администратор]")
+        
+        try:
+            full_reply = (
+                f"📩 **ОТВЕТ ОТ ТЕХПОДДЕРЖКИ PRINCE RUSSIA**\n"
+                f"───────────────────────────────\n"
+                f"👤 Администратор: **{admin_prefix} [id{uid}|Админ]**\n"
+                f"💬 Ответ: {reply_text}\n"
+                f"───────────────────────────────"
+            )
+            await bot.api.messages.send(user_id=target_user_id, message=full_reply, random_id=0)
+            return await message.answer(f"✅ Ответ успешно отправлен игроку [id{target_user_id}|ID {target_user_id}]!")
+        except Exception as e:
+            return await message.answer(f"❌ Ошибка отправки сообщения пользователю: {e}")
+
+    # Состояния ввода клавиатуры
     if uid in user_states:
         state = user_states[uid]
         del user_states[uid]
         
         if state == "create_ticket":
-            # Сохраняем тикет и отправляем уведомление всем админам уровня 3+ в ЛС
-            ticket_text = f"🚨 **НОВЫЙ ТИКЕТ ПОДДЕРЖКИ**\n👤 От: [id{uid}|Игрок]\n💬 Текст: {text}"
+            ticket_text = (
+                f"🚨 **НОВЫЙ ТИКЕТ ПОДДЕРЖКИ**\n"
+                f"👤 От: [id{uid}|Игрок] (ID: `{uid}`)\n"
+                f"💬 Текст: {text}\n\n"
+                f"💡 *Для ответа введите:* `/ans {uid} ваш_ответ`"
+            )
             for u_str, u_info in db["users"].items():
                 if u_info.get("level", 0) >= 3:
                     try:
@@ -322,7 +372,7 @@ async def private_input(message: Message):
         elif state == "give_bc":
             if len(args) < 2 or not args[0].isdigit() or not args[1].isdigit():
                 return await message.answer("❌ Ошибка формата! Используйте: `ID сумма`")
-            t_id, amount = int(args[0]], int(args[1])
+            t_id, amount = int(args[0]), int(args[1])
             get_user_data(t_id)["bc"] += amount
             save_data(DATA_DB_FILE, db)
             return await message.answer(f"✅ Игроку [id{t_id}|ID {t_id}] успешно выдано `+{amount:,} BC`.")
