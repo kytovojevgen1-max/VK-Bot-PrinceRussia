@@ -6,7 +6,6 @@ from threading import Thread
 from flask import Flask
 from vkbottle.bot import Bot, Message
 from vkbottle import Keyboard, KeyboardButtonColor, Text
-from vkbottle.dispatch.rules.base import PayloadRule
 
 # =====================================================================
 # 1. ВЕБ-СЕРВЕР ДЛЯ RENDER (24/7 FREE)
@@ -15,7 +14,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Prince Russia Ultimate Imba Core v3.0: ACTIVE 24/7"
+    return "Prince Russia Ultimate Core v3.1: ACTIVE 24/7"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -60,7 +59,7 @@ db = load_data(DATA_DB_FILE, default_type=dict)
 if "users" not in db: db["users"] = {}
 if "promos" not in db: db["promos"] = {"PRINCE": 10000000, "RUSSIA": 5000000, "START": 25000000}
 if "globals" not in db: db["globals"] = {"banned_users": []}
-if "tickets" not in db: db["tickets"] = {}  # {target_id: {"question": "...", "status": "open"}}
+if "tickets" not in db: db["tickets"] = {}
 
 user_states = {}
 
@@ -330,31 +329,7 @@ async def download_game(message: Message):
 
 
 # =====================================================================
-# 5. ОБРАБОТКА ИНЛАЙН-КНОПОК И ТИКЕТОВ
-# =====================================================================
-
-@bot.on.private_message(payload_rule={"action": "ans_ticket"})
-async def payload_ans(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
-    uid_to_ans = message.payload.get("uid")
-    user_states[message.from_id] = f"answer_specific_{uid_to_ans}"
-    await message.answer(f"✍️ Введите текст ответа для игрока с ID `{uid_to_ans}`:")
-
-@bot.on.private_message(payload_rule={"action": "close_ticket"})
-async def payload_close(message: Message):
-    if get_user_data(message.from_id)["level"] < 3: return
-    uid_to_close = str(message.payload.get("uid"))
-    if uid_to_close in db["tickets"]:
-        del db["tickets"][uid_to_close]
-        save_data(DATA_DB_FILE, db)
-        try:
-            await bot.api.messages.send(user_id=int(uid_to_close), message="❌ Ваш тикет в техподдержку был закрыт администратором без ответа.", random_id=0)
-        except Exception: pass
-        await message.answer(f"✅ Тикет игрока `{uid_to_close}` успешно закрыт и удален.")
-
-
-# =====================================================================
-# 6. ТЕКСТОВЫЕ КОМАНДЫ И ВВОД
+# 5. ТЕКСТОВЫЕ КОМАНДЫ И ВВОД
 # =====================================================================
 
 @bot.on.private_message()
@@ -364,6 +339,27 @@ async def private_input(message: Message):
     
     user_ids.add(uid)
     save_data(USERS_FILE, user_ids)
+    
+    # Обработка инлайн-кнопок по payload
+    if message.payload and get_user_data(uid)["level"] >= 3:
+        try:
+            payload_data = json.loads(message.payload) if isinstance(message.payload, str) else message.payload
+            action = payload_data.get("action")
+            target_uid = payload_data.get("uid")
+            
+            if action == "ans_ticket":
+                user_states[uid] = f"answer_specific_{target_uid}"
+                return await message.answer(f"✍️ Введите текст ответа для игрока с ID `{target_uid}`:")
+            elif action == "close_ticket":
+                if str(target_uid) in db["tickets"]:
+                    del db["tickets"][str(target_uid)]
+                    save_data(DATA_DB_FILE, db)
+                    try:
+                        await bot.api.messages.send(user_id=int(target_uid), message="❌ Ваш тикет в техподдержку был закрыт администратором без ответа.", random_id=0)
+                    except Exception: pass
+                return await message.answer(f"✅ Тикет игрока `{target_uid}` успешно закрыт.")
+        except Exception: pass
+
     text = message.text
     if not text: return
 
@@ -422,7 +418,6 @@ async def private_input(message: Message):
             u_name = f"@{u_data.get('username', f'id{uid}')}"
             ticket_text = f"🚨 **НОВЫЙ ТИКЕТ**\n👤 От: [id{uid}|Игрок] ({u_name})\n💬 Вопрос: {text}"
             
-            # Клавиатура с кнопками прямо под уведомлением для админа
             ticket_kb = Keyboard(one_time=False, inline=True)
             ticket_kb.add(Text("💬 Ответить", payload={"action": "ans_ticket", "uid": uid}), color=KeyboardButtonColor.POSITIVE)
             ticket_kb.add(Text("❌ Отклонить", payload={"action": "close_ticket", "uid": uid}), color=KeyboardButtonColor.NEGATIVE)
