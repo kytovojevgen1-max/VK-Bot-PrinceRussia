@@ -7,7 +7,7 @@ from flask import Flask, request
 app = Flask(__name__)
 
 # ================= НАСТРОЙКИ =================
-VK_TOKEN = "vk1.a.VMbXw4N2MoTHM0A4mCt2yn9ekw5kJv_6lzUHhfw1vfQB7tSJungdSgva2tsqQgWq7KFSlWlkK2mtHkXgNFgi1DgdCgePcuVJNi1cER6LFgVZ2CjnHkAV1XuWpLbLwshPx9UsRIgThW-mIucBzYOFya71ofeMPc8IPwFG70kRiJxEIjTUZSIzW9T3bM4PKKt0N4azmDrvT_af-mVloGPp7g"
+VK_TOKEN = "vk1.a.tjIJ7CqnErXpn4Vq_nzBKQBQMjb_NcJf4kiFaJZTZoEsJ4ZCz8eBu5Z8669wHETxyU6MQ_CwhnHTQfnHLMOG6kWYjzbwap1DhP98OOs8Pj2qurp0hu7u0mDR1Ub4vdGXAq-jcKbaqp9cawQ4QZ_qnSvwwIoXZn1YEcK_c7vAkwPnpW6fc6fd936xb6vF7NAt4yw76BK5X9HHnt3CS6EfxA"
 
 # Строка подтверждения для ВК со скриншота
 CONFIRMATION_TOKEN = "c3bf119d"
